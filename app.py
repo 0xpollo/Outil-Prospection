@@ -5,6 +5,7 @@ import pandas as pd
 import base64
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from scraper import scrape_google_maps
 from email_enricher import enrich_emails
@@ -179,10 +180,29 @@ st.markdown("""
         background: rgba(184, 196, 224, 0.06);
     }
 
-    /* ====== DATAFRAME ====== */
+    /* ====== DATAFRAME / TABLE ====== */
     .stDataFrame {
         border-radius: 10px;
         overflow: hidden;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    table th {
+        background: #0EA5E9;
+        color: #fff;
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 600;
+    }
+    table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    table tr:hover td {
+        background: #f0f9ff;
     }
 
     /* ====== BOUTONS DOWNLOAD ====== */
@@ -251,12 +271,15 @@ with st.expander("Param\u00e8tres de recherche"):
         nb_avis_minimum = st.number_input("Nombre d'avis minimum", min_value=0, value=0, step=5,
                                            help="Filtrer les petites structures avec peu de visibilit\u00e9")
 
-    col_f3, col_f4, col_f5 = st.columns(3)
+    col_f3, col_f4, col_f5, col_f6 = st.columns(4)
     with col_f3:
         telephone_requis = st.checkbox("Uniquement avec t\u00e9l\u00e9phone")
     with col_f4:
-        site_web_requis = st.checkbox("Uniquement avec site web")
+        portable_uniquement = st.checkbox("Portable uniquement (06/07)",
+                                          help="Ne garder que les num\u00e9ros de t\u00e9l\u00e9phone portable (06 ou 07)")
     with col_f5:
+        site_web_requis = st.checkbox("Uniquement avec site web")
+    with col_f6:
         email_requis = st.checkbox("Uniquement avec email")
 
 search_emails = st.checkbox("Rechercher les emails (plus lent)", value=True)
@@ -282,6 +305,7 @@ if st.button("Rechercher", type="primary", use_container_width=True):
                 note_minimum=note_minimum,
                 nb_avis_minimum=nb_avis_minimum,
                 telephone_requis=telephone_requis,
+                portable_uniquement=portable_uniquement,
                 site_web_requis=site_web_requis,
                 progress_callback=update_progress,
             )
@@ -325,7 +349,25 @@ if "results" in st.session_state and st.session_state["results"]:
     display_cols = [c for c in display_cols if c in df.columns]
     df = df[display_cols]
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # Nom -> lien Google, Site Web -> lien cliquable
+    def _make_nom_link(nom):
+        if not nom:
+            return ""
+        url = f"https://www.google.com/search?q={quote_plus(str(nom))}"
+        return f'<a href="{url}" target="_blank" style="color:#0EA5E9;text-decoration:none;">{nom}</a>'
+
+    def _make_site_link(site):
+        if not site:
+            return ""
+        href = site if site.startswith("http") else f"https://{site}"
+        return f'<a href="{href}" target="_blank" style="color:#0EA5E9;text-decoration:none;">{site}</a>'
+
+    df_display = df.copy()
+    df_display["Nom"] = df_display["Nom"].apply(_make_nom_link)
+    if "Site Web" in df_display.columns:
+        df_display["Site Web"] = df_display["Site Web"].apply(_make_site_link)
+
+    st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # Export
     col_csv, col_excel = st.columns(2)

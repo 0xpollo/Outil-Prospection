@@ -35,6 +35,7 @@ def scrape_google_maps(
     note_minimum: float = 0.0,
     nb_avis_minimum: int = 0,
     telephone_requis: bool = False,
+    portable_uniquement: bool = False,
     site_web_requis: bool = False,
     progress_callback=None,
 ):
@@ -235,6 +236,10 @@ def scrape_google_maps(
 
     if telephone_requis:
         results = [r for r in results if r.get("telephone")]
+
+    if portable_uniquement:
+        _mobile_re = re.compile(r'(?:0[67]|\+33\s*[67])')
+        results = [r for r in results if r.get("telephone") and _mobile_re.search(r["telephone"])]
 
     if site_web_requis:
         results = [r for r in results if r.get("site_web")]
