@@ -724,7 +724,63 @@ with tab_historique:
                     st.markdown('</div>', unsafe_allow_html=True)
                 hist_results = get_search_results(s["id"])
                 if hist_results:
-                    render_results_table(hist_results)
+                    hist_df = render_results_table(hist_results)
+
+                    # Boutons d'export
+                    col_exp_excel, col_exp_airtable = st.columns(2)
+
+                    with col_exp_excel:
+                        buf = BytesIO()
+                        hist_df.to_excel(buf, index=False, engine="openpyxl")
+                        st.download_button(
+                            label="T\u00e9l\u00e9charger Excel",
+                            data=buf.getvalue(),
+                            file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key="excel_%s" % s['id'],
+                        )
+
+                    with col_exp_airtable:
+                        df_at_h = pd.DataFrame(hist_results)
+                        at_map = {
+                            "nom": "Name",
+                            "adresse": "Address",
+                            "telephone": "Phone",
+                            "emails": "Email",
+                            "site_web": "Website",
+                            "note": "Google Rating",
+                            "nb_avis": "Review Count",
+                            "score": "Score",
+                        }
+                        df_at_h = df_at_h.rename(columns=at_map)
+                        df_at_h["Score Label"] = df_at_h["Score"].apply(
+                            lambda sc: score_label(int(sc)) if pd.notna(sc) and sc != "" else ""
+                        )
+                        df_at_h["Search Query"] = "%s \u00e0 %s" % (s['activite'], s['zone'])
+                        df_at_h["Date Found"] = s["date_recherche"][:10]
+
+                        at_cols = [
+                            "Name", "Address", "Phone", "Email", "Website",
+                            "Google Rating", "Review Count", "Score", "Score Label",
+                            "Search Query", "Date Found",
+                        ]
+                        at_cols = [c for c in at_cols if c in df_at_h.columns]
+                        df_at_h = df_at_h[at_cols]
+
+                        for col in df_at_h.select_dtypes(include="object").columns:
+                            df_at_h[col] = df_at_h[col].fillna("").astype(str).str.strip()
+
+                        csv_at_h = "\ufeff" + df_at_h.to_csv(index=False)
+
+                        st.download_button(
+                            label="Export Airtable (CSV)",
+                            data=csv_at_h.encode("utf-8"),
+                            file_name="prospection_%s_%s_airtable.csv" % (s['activite'], s['zone']),
+                            mime="text/csv",
+                            use_container_width=True,
+                            key="airtable_%s" % s['id'],
+                        )
                 else:
                     st.write("Aucun r\u00e9sultat pour cette recherche.")
 
