@@ -25,6 +25,33 @@ IGNORED_PREFIXES = {
     "postmaster", "webmaster", "root",
 }
 
+# Préfixes d'emails prioritaires (dirigeant / contact principal), par ordre de priorité
+PRIORITY_PREFIXES = [
+    "direction", "directeur", "dirigeant", "gerant", "patron",
+    "contact", "info", "accueil", "bonjour", "hello",
+    "commercial", "devis",
+]
+
+# Pages contact (tier 1 — prioritaires)
+CONTACT_PATHS = [
+    "/contact", "/contact/", "/nous-contacter", "/contactez-nous",
+    "/contact-us", "/contactez-nous/",
+]
+
+# Pages secondaires (tier 2)
+SECONDARY_PATHS = [
+    "/a-propos", "/about", "/about-us", "/about/",
+    "/equipe", "/team", "/qui-sommes-nous",
+    "/mentions-legales", "/legal", "/mentions-legales/",
+]
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
 
 def is_valid_email(email: str) -> bool:
     """Vérifie qu'un email n'est pas un faux positif."""
@@ -50,13 +77,7 @@ def is_valid_email(email: str) -> bool:
 def extract_emails_from_url(url: str) -> list[str]:
     """Extrait les emails d'une URL donnée."""
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=headers, allow_redirects=True)
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS, allow_redirects=True)
         resp.raise_for_status()
 
         # Extraire les emails du HTML brut
@@ -72,6 +93,55 @@ def extract_emails_from_url(url: str) -> list[str]:
                     emails.add(email)
 
         return [e for e in emails if is_valid_email(e)]
+
+    except Exception:
+        return []
+
+
+def pick_best_email(emails: set) -> str:
+    """Sélectionne le meilleur email parmi un ensemble (dirigeant/contact principal)."""
+    if not emails:
+        return ""
+    if len(emails) == 1:
+        return next(iter(emails))
+
+    # Trier par priorité : d'abord les préfixes prioritaires
+    for prefix in PRIORITY_PREFIXES:
+        for email in emails:
+            if email.lower().split("@")[0].startswith(prefix):
+                return email
+
+    # Sinon, préférer les emails courts (souvent plus génériques : prenom@domain)
+    # et exclure ceux qui ressemblent à des emails d'équipe (prenom.nom long)
+    sorted_emails = sorted(emails, key=lambda e: len(e.split("@")[0]))
+    return sorted_emails[0]
+
+
+def extract_footer_contact_links(url: str) -> list[str]:
+    """Extrait les liens contact/about depuis le footer d'une page."""
+    try:
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS, allow_redirects=True)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        footer_links = []
+        footer_els = soup.find_all("footer")
+        footer_els += soup.find_all(attrs={"class": re.compile(r"footer", re.I)})
+        footer_els += soup.find_all(attrs={"id": re.compile(r"footer", re.I)})
+
+        contact_keywords = ["contact", "about", "propos", "equipe", "team", "legal", "mention"]
+
+        seen = set()
+        for footer in footer_els:
+            for a_tag in footer.find_all("a", href=True):
+                href = a_tag["href"].lower()
+                if any(kw in href for kw in contact_keywords):
+                    full_url = urljoin(url, a_tag["href"])
+                    if full_url not in seen:
+                        seen.add(full_url)
+                        footer_links.append(full_url)
+
+        return footer_links
 
     except Exception:
         return []
@@ -108,17 +178,38 @@ def enrich_emails(entreprises: list[dict], progress_callback=None) -> list[dict]
 
         all_emails = set()
 
-        # Page d'accueil
+        # 1. Page d'accueil (toujours scannée)
         all_emails.update(extract_emails_from_url(site))
 
-        # Page contact
-        for contact_path in ["/contact", "/contact/", "/nous-contacter", "/contactez-nous"]:
+        # 2. Pages contact (tier 1) — arrêt dès qu'une sous-page donne des emails
+        found_on_subpage = False
+        for contact_path in CONTACT_PATHS:
             contact_url = urljoin(site, contact_path)
-            all_emails.update(extract_emails_from_url(contact_url))
-            if all_emails:
-                break  # On a trouvé des emails, pas besoin de tester les autres
+            page_emails = extract_emails_from_url(contact_url)
+            if page_emails:
+                all_emails.update(page_emails)
+                found_on_subpage = True
+                break
 
-        entreprise["emails"] = ", ".join(sorted(all_emails))
+        # 3. Si rien sur les pages contact, scanner les liens du footer
+        if not found_on_subpage:
+            footer_links = extract_footer_contact_links(site)
+            for link_url in footer_links[:3]:
+                page_emails = extract_emails_from_url(link_url)
+                if page_emails:
+                    all_emails.update(page_emails)
+                    found_on_subpage = True
+                    break
+
+        # 4. Si toujours rien, essayer les pages secondaires (tier 2)
+        if not found_on_subpage:
+            for path in SECONDARY_PATHS:
+                page_emails = extract_emails_from_url(urljoin(site, path))
+                if page_emails:
+                    all_emails.update(page_emails)
+                    break
+
+        entreprise["emails"] = pick_best_email(all_emails)
 
     if progress_callback:
         progress_callback("Enrichissement email terminé !", 1.0)
