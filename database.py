@@ -150,6 +150,23 @@ def get_search_results(search_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def update_entreprises(entreprises):
+    """Met à jour les emails et scores d'entreprises existantes."""
+    conn = get_connection()
+    for e in entreprises:
+        conn.execute(
+            """
+            UPDATE entreprises SET emails = ?, score = ?,
+                date_mise_a_jour = datetime('now', 'localtime')
+            WHERE nom = ? AND adresse = ?
+            """,
+            (e.get("emails", ""), e.get("score", 0),
+             e.get("nom", ""), e.get("adresse", "")),
+        )
+    conn.commit()
+    conn.close()
+
+
 def delete_search(search_id: int):
     """Supprime une recherche et ses liens (les entreprises orphelines restent)."""
     conn = get_connection()

@@ -13,7 +13,7 @@ from urllib.parse import quote_plus
 from scraper import scrape_google_maps
 from email_enricher import enrich_emails
 from scoring import calculate_scores, score_color, score_label
-from database import save_search, get_searches, get_search_results, delete_search, delete_all_history
+from database import save_search, get_searches, get_search_results, delete_search, delete_all_history, update_entreprises
 
 
 @st.cache_data(show_spinner=False)
@@ -647,8 +647,13 @@ with tab_recherche:
         col_excel, col_airtable = st.columns(2)
 
         with col_excel:
+            df_export = df.copy()
+            df_export["Statut"] = ""
+            df_export["Date d'envoi"] = ""
+            df_export["Nom nettoyé"] = ""
+            df_export["Ville"] = ""
             buffer = BytesIO()
-            df.to_excel(buffer, index=False, engine="openpyxl")
+            df_export.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
                 label="T\u00e9l\u00e9charger Excel",
                 data=buffer.getvalue(),
@@ -686,6 +691,10 @@ with tab_recherche:
             ]
             airtable_cols = [c for c in airtable_cols if c in df_at.columns]
             df_at = df_at[airtable_cols]
+            df_at["Statut"] = ""
+            df_at["Date d'envoi"] = ""
+            df_at["Nom nettoyé"] = ""
+            df_at["Ville"] = ""
 
             for col in df_at.select_dtypes(include="object").columns:
                 df_at[col] = df_at[col].fillna("").astype(str).str.strip()
@@ -715,13 +724,35 @@ with tab_historique:
             label = f"{s['activite']} \u00e0 {s['zone']} \u2014 {s['nb_resultats']} r\u00e9sultats \u2014 {date_str}"
 
             with st.expander(label):
-                col_info, col_del = st.columns([8, 2])
+                col_info, col_email, col_del = st.columns([6, 2, 2])
+                with col_email:
+                    if st.button("Rechercher les emails", key=f"email_{s['id']}"):
+                        st.session_state[f"run_email_{s['id']}"] = True
                 with col_del:
-                    st.markdown('<div class="hist-delete">', unsafe_allow_html=True)
                     if st.button("Supprimer", key=f"del_{s['id']}"):
                         delete_search(s["id"])
                         st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Lancer l'enrichissement email si demandé
+                if st.session_state.get(f"run_email_{s['id']}"):
+                    del st.session_state[f"run_email_{s['id']}"]
+                    hist_data = get_search_results(s["id"])
+                    sites_count = sum(1 for e in hist_data if e.get("site_web"))
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    def _update_progress(message, progress):
+                        status_text.text(message)
+                        progress_bar.progress(min(progress, 1.0))
+
+                    hist_data = enrich_emails(hist_data, progress_callback=_update_progress)
+                    hist_data = calculate_scores(hist_data)
+                    update_entreprises(hist_data)
+                    progress_bar.progress(1.0)
+                    emails_found = sum(1 for e in hist_data if e.get("emails"))
+                    status_text.text(f"{emails_found} emails trouves sur {sites_count} sites")
+                    st.rerun()
+
                 hist_results = get_search_results(s["id"])
                 if hist_results:
                     hist_df = render_results_table(hist_results)
@@ -730,8 +761,13 @@ with tab_historique:
                     col_exp_excel, col_exp_airtable = st.columns(2)
 
                     with col_exp_excel:
+                        hist_df_export = hist_df.copy()
+                        hist_df_export["Statut"] = ""
+                        hist_df_export["Date d'envoi"] = ""
+                        hist_df_export["Nom nettoyé"] = ""
+                        hist_df_export["Ville"] = ""
                         buf = BytesIO()
-                        hist_df.to_excel(buf, index=False, engine="openpyxl")
+                        hist_df_export.to_excel(buf, index=False, engine="openpyxl")
                         st.download_button(
                             label="T\u00e9l\u00e9charger Excel",
                             data=buf.getvalue(),
@@ -767,6 +803,10 @@ with tab_historique:
                         ]
                         at_cols = [c for c in at_cols if c in df_at_h.columns]
                         df_at_h = df_at_h[at_cols]
+                        df_at_h["Statut"] = ""
+                        df_at_h["Date d'envoi"] = ""
+                        df_at_h["Nom nettoyé"] = ""
+                        df_at_h["Ville"] = ""
 
                         for col in df_at_h.select_dtypes(include="object").columns:
                             df_at_h[col] = df_at_h[col].fillna("").astype(str).str.strip()
