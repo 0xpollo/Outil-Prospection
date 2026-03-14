@@ -384,6 +384,18 @@ def _make_score_badge(score):
     )
 
 
+def _export_excel(df_export):
+    """Génère un fichier Excel avec la feuille Prospects + 3 feuilles de suivi."""
+    buffer = BytesIO()
+    df_suivi = pd.DataFrame(columns=["Destinataire", "Date et Heure", "Objet", "Corp"])
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Prospects")
+        df_suivi.to_excel(writer, index=False, sheet_name="Envoi")
+        df_suivi.to_excel(writer, index=False, sheet_name="Relance 1")
+        df_suivi.to_excel(writer, index=False, sheet_name="Relance 2")
+    return buffer.getvalue()
+
+
 def render_results_table(results, show_deja_connue=False):
     """Construit et affiche le tableau HTML des résultats."""
     df = pd.DataFrame(results)
@@ -500,6 +512,14 @@ with tab_recherche:
                 disabled=True,
             )
             zone_selected = None
+            zones_selected = []
+        elif mode_recherche == "approfondie" and _COMMUNES_LABELS is not None:
+            zones_selected = st.multiselect(
+                "Zones g\u00e9ographiques",
+                options=_COMMUNES_LABELS,
+                placeholder="Tapez une ou plusieurs villes...",
+            )
+            zone_selected = zones_selected[0] if len(zones_selected) == 1 else None
         elif _COMMUNES_LABELS is not None:
             zone_selected = st.selectbox(
                 "Zone g\u00e9ographique",
@@ -507,10 +527,12 @@ with tab_recherche:
                 index=None,
                 placeholder="Tapez une ville ou un code postal...",
             )
+            zones_selected = [zone_selected] if zone_selected else []
         else:
             zone_selected = st.text_input(
                 "Zone g\u00e9ographique", placeholder="Ex: Lyon, Bordeaux..."
             )
+            zones_selected = [zone_selected] if zone_selected else []
 
     # Extraire ville, code postal et coordonn\u00e9es GPS de la s\u00e9lection
     zone = ""
@@ -559,7 +581,7 @@ with tab_recherche:
     st.markdown("")  # petit espace
 
     if st.button("Rechercher", type="primary", use_container_width=True):
-        if not activite or (not zone and mode_recherche != "france"):
+        if not activite or (not zones_selected and mode_recherche != "france"):
             st.warning("Veuillez remplir le domaine d'activit\u00e9" + (" et la zone." if mode_recherche != "france" else "."))
         else:
             progress_bar = st.progress(0)
@@ -573,23 +595,71 @@ with tab_recherche:
             def on_error(msg):
                 error_container["message"] = msg
 
-            with st.spinner("Recherche en cours..."):
-                results = scrape_google_maps(
-                    activite,
-                    zone,
-                    max_results=max_results,
-                    note_minimum=note_minimum,
-                    nb_avis_minimum=nb_avis_minimum,
-                    telephone_requis=telephone_requis,
-                    portable_uniquement=portable_uniquement,
-                    site_web_requis=site_web_requis,
-                    code_postal=code_postal,
-                    geo_lat=geo_lat,
-                    geo_lng=geo_lng,
-                    mode=mode_recherche,
-                    progress_callback=update_progress,
-                    error_callback=on_error,
-                )
+            # Multi-villes en mode approfondie
+            if mode_recherche == "approfondie" and len(zones_selected) > 1:
+                all_results = []
+                seen_names = set()
+                total_zones = len(zones_selected)
+
+                with st.spinner("Recherche en cours..."):
+                    for zi, zs in enumerate(zones_selected):
+                        # Extraire infos de cette zone
+                        z_m = re.match(r"^(.+?)\s*\((\d{5})\)$", zs)
+                        z_zone = z_m.group(1) if z_m else zs
+                        z_cp = z_m.group(2) if z_m else ""
+                        z_coords = _COMMUNES_INDEX.get(zs)
+                        z_lat = z_coords[0] if z_coords else None
+                        z_lng = z_coords[1] if z_coords else None
+
+                        def _city_progress(message, progress):
+                            overall = (zi + progress) / total_zones
+                            status_text.text("{}/{} — {} — {}".format(
+                                zi + 1, total_zones, z_zone, message,
+                            ))
+                            progress_bar.progress(min(overall, 0.99))
+
+                        batch = scrape_google_maps(
+                            activite,
+                            z_zone,
+                            max_results=max_results,
+                            note_minimum=note_minimum,
+                            nb_avis_minimum=nb_avis_minimum,
+                            telephone_requis=telephone_requis,
+                            portable_uniquement=portable_uniquement,
+                            site_web_requis=site_web_requis,
+                            code_postal=z_cp,
+                            geo_lat=z_lat,
+                            geo_lng=z_lng,
+                            mode=mode_recherche,
+                            progress_callback=_city_progress,
+                            error_callback=on_error,
+                        )
+
+                        if batch:
+                            for biz in batch:
+                                if biz["nom"] not in seen_names:
+                                    seen_names.add(biz["nom"])
+                                    all_results.append(biz)
+
+                results = all_results
+            else:
+                with st.spinner("Recherche en cours..."):
+                    results = scrape_google_maps(
+                        activite,
+                        zone,
+                        max_results=max_results,
+                        note_minimum=note_minimum,
+                        nb_avis_minimum=nb_avis_minimum,
+                        telephone_requis=telephone_requis,
+                        portable_uniquement=portable_uniquement,
+                        site_web_requis=site_web_requis,
+                        code_postal=code_postal,
+                        geo_lat=geo_lat,
+                        geo_lng=geo_lng,
+                        mode=mode_recherche,
+                        progress_callback=update_progress,
+                        error_callback=on_error,
+                    )
 
             # Afficher l'erreur Google si détectée
             if error_container["message"]:
@@ -611,7 +681,10 @@ with tab_recherche:
                 results = calculate_scores(results)
 
                 # Sauvegarder en base
-                zone_label = zone_selected if zone_selected else zone
+                if len(zones_selected) > 1:
+                    zone_label = ", ".join(zones_selected)
+                else:
+                    zone_label = zone_selected if zone_selected else zone
                 save_search(
                     activite, zone_label,
                     {
@@ -629,7 +702,7 @@ with tab_recherche:
                 results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
                 progress_bar.progress(1.0)
-                status_text.text(f"{len(results)} entreprises trouv\u00e9es")
+                status_text.text("{} entreprises trouv\u00e9es".format(len(results)))
 
                 st.session_state["results"] = results
                 st.session_state["search_activite"] = activite
@@ -652,11 +725,9 @@ with tab_recherche:
             df_export["Date d'envoi"] = ""
             df_export["Nom nettoyé"] = ""
             df_export["Ville"] = ""
-            buffer = BytesIO()
-            df_export.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
                 label="T\u00e9l\u00e9charger Excel",
-                data=buffer.getvalue(),
+                data=_export_excel(df_export),
                 file_name="prospection.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
@@ -766,11 +837,9 @@ with tab_historique:
                         hist_df_export["Date d'envoi"] = ""
                         hist_df_export["Nom nettoyé"] = ""
                         hist_df_export["Ville"] = ""
-                        buf = BytesIO()
-                        hist_df_export.to_excel(buf, index=False, engine="openpyxl")
                         st.download_button(
                             label="T\u00e9l\u00e9charger Excel",
-                            data=buf.getvalue(),
+                            data=_export_excel(hist_df_export),
                             file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True,
