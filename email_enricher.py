@@ -1,12 +1,20 @@
 """Extraction d'emails depuis les sites web des entreprises."""
 
+import gc
 import re
 import requests
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
 # Timeout pour les requêtes HTTP
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = 8
+
+# Taille max de réponse à lire (1 Mo — au-delà c'est du contenu inutile)
+MAX_RESPONSE_SIZE = 1_000_000
+
+# Nombre d'entreprises entre chaque nettoyage mémoire
+GC_BATCH_SIZE = 200
 
 # Regex pour extraire les emails
 EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
@@ -53,6 +61,17 @@ _HEADERS = {
 }
 
 
+def _create_session():
+    """Crée une session HTTP réutilisable avec connection pooling."""
+    session = requests.Session()
+    session.headers.update(_HEADERS)
+    # Limiter les connexions simultanées pour éviter l'épuisement des sockets
+    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
 def is_valid_email(email: str) -> bool:
     """Vérifie qu'un email n'est pas un faux positif."""
     email = email.lower().strip()
@@ -74,17 +93,24 @@ def is_valid_email(email: str) -> bool:
     return True
 
 
-def extract_emails_from_url(url: str) -> list[str]:
+def extract_emails_from_url(url, session=None):
     """Extrait les emails d'une URL donnée."""
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS, allow_redirects=True)
+        http = session or requests
+        resp = http.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS,
+                        allow_redirects=True, stream=True)
         resp.raise_for_status()
 
+        # Lire seulement les premiers MAX_RESPONSE_SIZE octets
+        content = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
+        resp.close()
+        text = content.decode("utf-8", errors="ignore")
+
         # Extraire les emails du HTML brut
-        emails = set(EMAIL_REGEX.findall(resp.text))
+        emails = set(EMAIL_REGEX.findall(text))
 
         # Aussi chercher les mailto: links
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(text, "html.parser")
         for a_tag in soup.find_all("a", href=True):
             href = a_tag["href"]
             if href.startswith("mailto:"):
@@ -92,6 +118,7 @@ def extract_emails_from_url(url: str) -> list[str]:
                 if email:
                     emails.add(email)
 
+        del soup, text, content
         return [e for e in emails if is_valid_email(e)]
 
     except Exception:
@@ -117,12 +144,18 @@ def pick_best_email(emails: set) -> str:
     return sorted_emails[0]
 
 
-def extract_footer_contact_links(url: str) -> list[str]:
+def extract_footer_contact_links(url, session=None):
     """Extrait les liens contact/about depuis le footer d'une page."""
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS, allow_redirects=True)
+        http = session or requests
+        resp = http.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS,
+                        allow_redirects=True, stream=True)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        content = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
+        resp.close()
+        text = content.decode("utf-8", errors="ignore")
+        soup = BeautifulSoup(text, "html.parser")
+        del content, text
 
         footer_links = []
         footer_els = soup.find_all("footer")
@@ -147,7 +180,7 @@ def extract_footer_contact_links(url: str) -> list[str]:
         return []
 
 
-def enrich_emails(entreprises: list[dict], progress_callback=None) -> list[dict]:
+def enrich_emails(entreprises, progress_callback=None):
     """
     Enrichit une liste d'entreprises avec les emails trouvés sur leurs sites web.
 
@@ -162,30 +195,36 @@ def enrich_emails(entreprises: list[dict], progress_callback=None) -> list[dict]
     total = len(sites_to_check)
 
     if progress_callback:
-        progress_callback(f"Recherche d'emails sur {total} sites web...", 0.0)
+        progress_callback("Recherche d'emails sur %d sites web..." % total, 0.0)
 
+    # Session HTTP réutilisable (connection pooling)
+    session = _create_session()
+
+    site_idx = 0
     for idx, entreprise in enumerate(entreprises):
         site = entreprise.get("site_web", "")
         if not site:
             entreprise["emails"] = ""
             continue
 
+        site_idx += 1
+
         if progress_callback:
             progress_callback(
-                f"Scan email {idx+1}/{total} : {entreprise.get('nom', '')}",
-                idx / max(total, 1)
+                "Scan email %d/%d : %s" % (site_idx, total, entreprise.get("nom", "")),
+                site_idx / max(total, 1)
             )
 
         all_emails = set()
 
         # 1. Page d'accueil (toujours scannée)
-        all_emails.update(extract_emails_from_url(site))
+        all_emails.update(extract_emails_from_url(site, session))
 
         # 2. Pages contact (tier 1) — arrêt dès qu'une sous-page donne des emails
         found_on_subpage = False
         for contact_path in CONTACT_PATHS:
             contact_url = urljoin(site, contact_path)
-            page_emails = extract_emails_from_url(contact_url)
+            page_emails = extract_emails_from_url(contact_url, session)
             if page_emails:
                 all_emails.update(page_emails)
                 found_on_subpage = True
@@ -193,9 +232,9 @@ def enrich_emails(entreprises: list[dict], progress_callback=None) -> list[dict]
 
         # 3. Si rien sur les pages contact, scanner les liens du footer
         if not found_on_subpage:
-            footer_links = extract_footer_contact_links(site)
+            footer_links = extract_footer_contact_links(site, session)
             for link_url in footer_links[:3]:
-                page_emails = extract_emails_from_url(link_url)
+                page_emails = extract_emails_from_url(link_url, session)
                 if page_emails:
                     all_emails.update(page_emails)
                     found_on_subpage = True
@@ -204,14 +243,21 @@ def enrich_emails(entreprises: list[dict], progress_callback=None) -> list[dict]
         # 4. Si toujours rien, essayer les pages secondaires (tier 2)
         if not found_on_subpage:
             for path in SECONDARY_PATHS:
-                page_emails = extract_emails_from_url(urljoin(site, path))
+                page_emails = extract_emails_from_url(urljoin(site, path), session)
                 if page_emails:
                     all_emails.update(page_emails)
                     break
 
         entreprise["emails"] = pick_best_email(all_emails)
 
+        # Nettoyage mémoire périodique pour éviter le freeze sur gros volumes
+        if site_idx % GC_BATCH_SIZE == 0:
+            gc.collect()
+
+    # Fermer la session proprement
+    session.close()
+
     if progress_callback:
-        progress_callback("Enrichissement email terminé !", 1.0)
+        progress_callback("Enrichissement email termine !", 1.0)
 
     return entreprises
