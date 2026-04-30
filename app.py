@@ -688,7 +688,7 @@ with tab_recherche:
     mode_labels = {
         "simple": "Recherche simple (~2s)",
         "approfondie": "Recherche approfondie (~30s, ~500 r\u00e9sultats)",
-        "ultra": "Ultra (Selenium scroll, ~5-10 min, jusqu'\u00e0 2000 r\u00e9sultats)",
+        "ultra": "Ultra (grille dense ~80 points, ~3-5 min, ~1000-1500 r\u00e9sultats)",
         "france": "France enti\u00e8re (~3-5 min, milliers de r\u00e9sultats)",
     }
     col_mode, col_advanced = st.columns([2, 2])

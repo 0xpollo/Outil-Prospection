@@ -307,6 +307,54 @@ def _scrape_via_http(query, lat, lng, max_results=20, mode="simple",
             )
         return results if results else None
 
+    if mode == "ultra":
+        # Mode "ultra" : grille TRES dense couvrant 35-40 km autour du centre.
+        # Pas de 2.5-3 km au centre, 5 km en périphérie. ~80 points GPS.
+        # Chaque point ramène 100-200 résultats (déduplication entre points).
+        # Cible ~1000-1500 résultats sur une grande métropole. ~3-5 min total.
+        offsets = []
+        # Anneau 0 : centre + 8 voisins à ~3 km
+        offsets.append((0, 0, 25000))
+        for dlat in (-0.025, 0, 0.025):
+            for dlng in (-0.04, 0, 0.04):
+                if (dlat, dlng) != (0, 0):
+                    offsets.append((dlat, dlng, 15000))
+        # Anneau 1 : à ~6-8 km, pas de 0.04° lat / 0.06° lng
+        for dlat in (-0.06, -0.03, 0, 0.03, 0.06):
+            for dlng in (-0.09, -0.045, 0, 0.045, 0.09):
+                if abs(dlat) >= 0.05 or abs(dlng) >= 0.07:
+                    offsets.append((dlat, dlng, 15000))
+        # Anneau 2 : à ~12-15 km
+        for dlat in (-0.12, -0.06, 0, 0.06, 0.12):
+            for dlng in (-0.18, -0.09, 0, 0.09, 0.18):
+                if abs(dlat) >= 0.10 or abs(dlng) >= 0.15:
+                    offsets.append((dlat, dlng, 20000))
+        # Anneau 3 : à ~20-25 km (banlieue large)
+        for dlat in (-0.22, -0.11, 0, 0.11, 0.22):
+            for dlng in (-0.30, -0.15, 0, 0.15, 0.30):
+                if abs(dlat) >= 0.20 or abs(dlng) >= 0.27:
+                    offsets.append((dlat, dlng, 25000))
+        # Dédup par sécurité
+        seen_off = set()
+        unique_offsets = []
+        for o in offsets:
+            if o not in seen_off:
+                seen_off.add(o)
+                unique_offsets.append(o)
+        offsets = unique_offsets
+
+        points = [
+            (lat + dlat, lng + dlng, zm,
+             "Recherche {}/{}".format(idx + 1, len(offsets)))
+            for idx, (dlat, dlng, zm) in enumerate(offsets)
+        ]
+        results = _multi_search(session, query, points, progress_callback)
+        if progress_callback:
+            progress_callback(
+                "{} entreprises trouvées".format(len(results)), 0.85
+            )
+        return results if results else None
+
     if mode == "approfondie":
         # Grille double : centre serré (4–13 km) + couronne large (15–25 km)
         # pour les métropoles type Lyon, Paris, Marseille qui s'étendent
@@ -799,20 +847,8 @@ def scrape_google_maps(
 
     results = None
 
-    # --- Mode "ultra" : Selenium scrolling humain (lent mais ramène 1000+) ---
-    # Utilisé pour les très grandes villes où le HTTP plafonne à ~200/requête
-    # même en mode approfondie. Scroll dans la liste GMaps comme un humain
-    # jusqu'à ce que Google n'ajoute plus de résultats.
-    if mode == "ultra":
-        results = _scrape_via_selenium(
-            query, geo_lat, geo_lng,
-            max_results=max(max_results, 99999),  # forcer scroll jusqu'au bout
-            progress_callback=progress_callback,
-            error_callback=error_callback,
-        )
-
-    # --- Méthode 1 : HTTP direct (rapide) ---
-    elif mode == "france":
+    # --- Méthode 1 : HTTP direct (rapide). Gère simple/approfondie/ultra/france ---
+    if mode == "france":
         results = _scrape_via_http(
             query, 46.6, 2.2, max_results,
             mode="france",
@@ -825,8 +861,8 @@ def scrape_google_maps(
             progress_callback=progress_callback,
         )
 
-    # --- Méthode 2 : Selenium (fallback, sauf mode France et ultra qui le force) ---
-    if not results and mode not in ("france", "ultra"):
+    # --- Méthode 2 : Selenium (fallback uniquement, sauf mode France) ---
+    if not results and mode != "france":
         results = _scrape_via_selenium(
             query, geo_lat, geo_lng, max_results,
             progress_callback, error_callback,
