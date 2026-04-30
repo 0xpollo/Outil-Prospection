@@ -267,8 +267,10 @@ def _multi_search(session, query, points, progress_callback,
         else:
             consecutive_empty = 0
 
-        # Arrêter si 8 recherches consécutives sans nouveau résultat
-        if consecutive_empty >= 8:
+        # Arrêter si 12 recherches consécutives sans nouveau résultat.
+        # 12 = compromis entre éviter le hammering inutile et laisser une
+        # vraie chance aux points éloignés (banlieue) après une zone dense.
+        if consecutive_empty >= 12:
             break
 
         # Pause entre les requêtes
@@ -306,19 +308,31 @@ def _scrape_via_http(query, lat, lng, max_results=20, mode="simple",
         return results if results else None
 
     if mode == "approfondie":
-        # Grille autour du point central (~10 km entre chaque point)
+        # Grille double : centre serré (4–13 km) + couronne large (15–25 km)
+        # pour les métropoles type Lyon, Paris, Marseille qui s'étendent
+        # sur 25–40 km (banlieue + couronne).
         offsets = [
+            # --- Centre élargi (zoom 40km : couvre tout le cœur) ---
             (0, 0, 40000),
+            # --- Anneau proche : 4–6 km du centre ---
             (0.04, 0, 20000), (-0.04, 0, 20000),
             (0, 0.06, 20000), (0, -0.06, 20000),
             (0.04, 0.06, 20000), (0.04, -0.06, 20000),
             (-0.04, 0.06, 20000), (-0.04, -0.06, 20000),
+            # --- Anneau moyen : 8–13 km ---
             (0.08, 0, 20000), (-0.08, 0, 20000),
             (0, 0.12, 20000), (0, -0.12, 20000),
             (0.08, 0.06, 20000), (0.08, -0.06, 20000),
             (-0.08, 0.06, 20000), (-0.08, -0.06, 20000),
             (0.04, 0.12, 20000), (0.04, -0.12, 20000),
             (-0.04, 0.12, 20000), (-0.04, -0.12, 20000),
+            # --- Anneau large : 15–25 km (banlieue / périphérie) ---
+            (0.15, 0, 25000), (-0.15, 0, 25000),
+            (0, 0.20, 25000), (0, -0.20, 25000),
+            (0.12, 0.18, 25000), (0.12, -0.18, 25000),
+            (-0.12, 0.18, 25000), (-0.12, -0.18, 25000),
+            (0.20, 0.10, 25000), (-0.20, 0.10, 25000),
+            (0.20, -0.10, 25000), (-0.20, -0.10, 25000),
         ]
         points = [
             (lat + dlat, lng + dlng, zm,
