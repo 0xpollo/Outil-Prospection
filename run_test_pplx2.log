@@ -1,0 +1,240 @@
+/Users/mathieu/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+17:13:52 [INFO] perplexity_search: Perplexity dirigeant → Plombier Croix Rousse : pas d'email mais site=https://plombier-lyon4.fr/
+17:14:00 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour christophe segura @ plombier-lyon4.fr (status=ok)
+17:16:28 [INFO] advanced_enrichment: Enrich Plombier Croix Rousse : email_dir=christophe.segura@plombier-lyon4.fr (probable), strat=0, site=https://plombier-lyon4.fr/
+17:16:30 [INFO] perplexity_search: Perplexity dirigeant → A.C PLOMBERIE : pas d'email mais site=https://www.ac-plomberie-renovation.fr/
+17:16:38 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour brahim ouchene @ ac-plomberie-renovation.fr (status=ok)
+17:19:06 [INFO] advanced_enrichment: Enrich A.C PLOMBERIE : email_dir=brahim.ouchene@ac-plomberie-renovation.fr (probable), strat=0, site=https://www.ac-plomberie-renovation.fr/
+17:19:29 [INFO] advanced_enrichment: Enrich CEDIR - Plombier & Électricien : email_dir=- (-), strat=0, site=https://www.urgence-lyon.fr/
+17:21:49 [INFO] advanced_enrichment: Enrich Plombier eau top : email_dir=- (-), strat=0, site=http://plombier-lyon6.com/
+17:24:09 [INFO] advanced_enrichment: Enrich Plombier 7 : email_dir=- (-), strat=0, site=https://plombier7.fr/
+17:24:12 [INFO] perplexity_search: Perplexity dirigeant → Eminence Plomberie : pas d'email mais site=http://www.eminence-plomberie.fr/
+17:24:18 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour aurelien scala @ eminence-plomberie.fr (status=ok)
+17:25:47 [INFO] advanced_enrichment: Enrich Eminence Plomberie : email_dir=aurelien.scala@eminence-plomberie.fr (probable), strat=0, site=http://www.eminence-plomberie.fr/
+17:26:55 [INFO] advanced_enrichment: Enrich Plomberie des Pentes : email_dir=- (-), strat=0, site=http://plomberiedespentes.com/
+17:26:57 [INFO] perplexity_search: Perplexity → Plomberie Zinguerie : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche ; seules des annu)
+17:26:57 [INFO] perplexity_search: Perplexity company → Plomberie Zinguerie : rien trouvé
+17:27:00 [INFO] perplexity_search: Perplexity dirigeant → Plomberie Zinguerie : pas d'email perso trouvé
+17:27:00 [INFO] advanced_enrichment: Enrich Plomberie Zinguerie : email_dir=- (-), strat=0, site=-
+17:27:00 [INFO] advanced_enrichment: Enrich Ys plomberie : email_dir=- (-), strat=0, site=http://ys-plomberie.hubside.fr/
+17:27:00 [INFO] advanced_enrichment: Enrich FOREVER SERVICES PLOMBERIE : email_dir=- (-), strat=0, site=http://www.foreverservicesplomberie.fr/
+17:27:02 [INFO] perplexity_search: Perplexity dirigeant → Blicko : trouvé greg@blicko.fr
+17:27:09 [INFO] advanced_enrichment: Enrich Blicko : email_dir=greg@blicko.fr (probable), strat=0, site=https://www.blicko.fr/devis-plombier-fg/
+17:27:16 [INFO] perplexity_search: Perplexity → VES PLOMBERIE : site rejeté (confiance basse: Aucune information trouvée dans les résultats de recherche concernant VES PLOMBE)
+17:27:16 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : http://cdn2_3.reseaudescommunes.fr pour 'VES PLOMBERIE'
+17:27:16 [INFO] perplexity_search: Perplexity company → VES PLOMBERIE : rien trouvé
+17:27:18 [INFO] perplexity_search: Perplexity dirigeant → VES PLOMBERIE : pas d'email perso trouvé
+17:27:18 [INFO] advanced_enrichment: Enrich VES PLOMBERIE : email_dir=- (-), strat=0, site=-
+17:27:24 [INFO] advanced_enrichment: Enrich Techniciens Lyonnais Plombier & Débouchage Lyon : email_dir=- (-), strat=0, site=https://www.technicienlyonnais.fr/
+17:27:26 [INFO] perplexity_search: Perplexity dirigeant → BL Plomberie : pas d'email mais site=http://www.blplomberie.fr/
+17:27:27 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour benjamin libraty @ blplomberie.fr (status=ok)
+17:27:33 [INFO] advanced_enrichment: Enrich BL Plomberie : email_dir=benjamin.libraty@blplomberie.fr (probable), strat=0, site=http://www.blplomberie.fr/
+17:29:53 [INFO] advanced_enrichment: Enrich Groupe Artisan : email_dir=- (-), strat=0, site=https://groupe-artisan.fr/
+17:29:57 [INFO] advanced_enrichment: Enrich Entreprise Renaudin : email_dir=- (-), strat=0, site=https://entreprise-renaudin.fr/
+17:30:00 [INFO] perplexity_search: Perplexity dirigeant → CHAPUIS PLOMBERIE : pas d'email mais site=https://chapuisplomberie.fr/
+17:30:00 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour frederic chapuis @ chapuisplomberie.fr (status=ok)
+17:30:04 [INFO] advanced_enrichment: Enrich CHAPUIS PLOMBERIE : email_dir=frederic.chapuis@chapuisplomberie.fr (probable), strat=0, site=https://chapuisplomberie.fr/
+17:30:10 [INFO] advanced_enrichment: Enrich Sos Intervention - Plombier Lyon : email_dir=- (-), strat=0, site=https://sosintervention.com/
+17:30:33 [INFO] advanced_enrichment: Enrich Entreprise Coudreau : email_dir=- (-), strat=0, site=http://www.coudreau.fr/
+17:30:36 [INFO] perplexity_search: Perplexity dirigeant → Fcb concept : pas d'email mais site=http://fcbconcept.com
+17:30:36 [INFO] advanced_enrichment: MX check → fcbconcept.com : pas de MX
+17:30:36 [INFO] advanced_enrichment: Enrich Fcb concept : email_dir=- (-), strat=0, site=http://fcbconcept.com/?utm_source=gmb&utm_medium=referral
+17:31:08 [INFO] perplexity_search: Perplexity dirigeant → Garage Tozzi : pas d'email mais site=https://garagetozzi.wordpress.com/
+17:31:08 [INFO] advanced_enrichment: MX check → garagetozzi.wordpress.com : pas de MX
+17:31:09 [INFO] advanced_enrichment: Enrich Garage Tozzi : email_dir=- (-), strat=0, site=https://garagetozzi.wordpress.com/
+17:31:12 [INFO] advanced_enrichment: Enrich Garage MARCEAU : email_dir=- (-), strat=0, site=https://www.vroomly.com/garages/garage-marceau-13003-marceau/
+17:31:16 [INFO] perplexity_search: Perplexity → Garage Mekki : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Seuls des annuai)
+17:31:16 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.au-magasin.fr pour 'Garage Mekki'
+17:31:16 [INFO] perplexity_search: Perplexity company → Garage Mekki : rien trouvé
+17:31:16 [INFO] advanced_enrichment: Enrich Garage Mekki : email_dir=- (-), strat=0, site=-
+17:31:20 [INFO] perplexity_search: Perplexity → LUXE GARAGE : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Seuls des annuai)
+17:31:20 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://marseille.work pour 'LUXE GARAGE'
+17:31:20 [INFO] perplexity_search: Perplexity company → LUXE GARAGE : rien trouvé
+17:31:25 [INFO] perplexity_search: Perplexity dirigeant → LUXE GARAGE : pas d'email perso trouvé
+17:31:25 [INFO] advanced_enrichment: Enrich LUXE GARAGE : email_dir=- (-), strat=0, site=-
+17:31:28 [INFO] perplexity_search: Perplexity → Garage Elio : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Toutes les sourc)
+17:31:28 [INFO] perplexity_search: Perplexity company → Garage Elio : site=https://lesgarages.fr
+17:31:33 [INFO] advanced_enrichment: Enrich Garage Elio : email_dir=- (-), strat=0, site=https://lesgarages.fr
+17:31:36 [INFO] perplexity_search: Perplexity → Garage Banck : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Tous les liens s)
+17:31:36 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.au-magasin.fr pour 'Garage Banck'
+17:31:36 [INFO] perplexity_search: Perplexity company → Garage Banck : rien trouvé
+17:31:39 [INFO] perplexity_search: Perplexity dirigeant → Garage Banck : pas d'email perso trouvé
+17:31:39 [INFO] advanced_enrichment: Enrich Garage Banck : email_dir=- (-), strat=0, site=-
+17:31:47 [INFO] perplexity_search: Perplexity → Garage d'Arras : site rejeté (confiance basse: Aucun site officiel trouvé pour 'Garage d'Arras' à l'adresse indiquée. Les résul)
+17:31:49 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.fatec-group.com pour 'Garage d'Arras'
+17:31:49 [INFO] perplexity_search: Perplexity company → Garage d'Arras : rien trouvé
+17:31:50 [INFO] advanced_enrichment: Enrich Garage d'Arras : email_dir=- (-), strat=0, site=-
+17:31:58 [INFO] advanced_enrichment: Enrich Garage Des Chartreux - Mécanique et Carrosserie - FRANCHISE 100 % OFFERTE 13 Marseille : email_dir=- (-), strat=0, site=https://garagechartreux.fr/
+17:32:05 [INFO] perplexity_search: Perplexity → Garage Parisi : site rejeté (confiance basse: Aucun site web officiel trouvé. Les résultats proviennent uniquement d'annuaires)
+17:32:05 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.au-magasin.fr pour 'Garage Parisi'
+17:32:05 [INFO] perplexity_search: Perplexity company → Garage Parisi : rien trouvé
+17:32:05 [INFO] gmaps_lookup: GMaps → Garage Parisi : site=https://garage-parisi-avia.fr/ (similarité=1.00)
+17:32:08 [INFO] perplexity_search: Perplexity dirigeant → Garage Parisi : pas d'email mais site=https://garage-parisi-avia.fr/
+17:32:08 [INFO] advanced_enrichment: MX check → garage-parisi-avia.fr : pas de MX
+17:32:08 [INFO] advanced_enrichment: Enrich Garage Parisi : email_dir=- (-), strat=0, site=https://garage-parisi-avia.fr/
+17:32:09 [INFO] advanced_enrichment: Enrich Garage Locarno : email_dir=- (-), strat=0, site=https://garagelocarno.fr/
+17:32:12 [INFO] perplexity_search: Perplexity → Garage De L'avenir : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Les résultats me)
+17:32:12 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.volkswagen.fr pour 'Garage De L'avenir'
+17:32:12 [INFO] perplexity_search: Perplexity company → Garage De L'avenir : rien trouvé
+17:32:14 [INFO] gmaps_lookup: GMaps → Garage De L'avenir : site=https://reseau.citroen.fr/reparateur-marseille-06 (similarité=0.50)
+17:32:16 [INFO] perplexity_search: Perplexity dirigeant → Garage De L'avenir : pas d'email mais site=https://reseau.citroen.fr/reparateur-marseille-06
+17:32:17 [INFO] advanced_enrichment: MX check → reseau.citroen.fr : pas de MX
+17:32:17 [INFO] advanced_enrichment: Enrich Garage De L'avenir : email_dir=- (-), strat=0, site=https://reseau.citroen.fr/reparateur-marseille-06
+17:32:20 [INFO] perplexity_search: Perplexity → Garage PUGET : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Les résultats pr)
+17:32:21 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.au-magasin.fr pour 'Garage PUGET'
+17:32:21 [INFO] perplexity_search: Perplexity company → Garage PUGET : rien trouvé
+17:32:21 [INFO] advanced_enrichment: Enrich Garage PUGET : email_dir=- (-), strat=0, site=-
+17:32:25 [INFO] perplexity_search: Perplexity → Garage Carlotti : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Seuls des annuai)
+17:32:25 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://coparking.ch pour 'Garage Carlotti'
+17:32:25 [INFO] perplexity_search: Perplexity company → Garage Carlotti : rien trouvé
+17:32:26 [INFO] advanced_enrichment: Enrich Garage Carlotti : email_dir=- (-), strat=0, site=-
+17:32:30 [INFO] perplexity_search: Perplexity → Garage Rapid'Vulca : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Tous les résulta)
+17:32:30 [INFO] perplexity_search: Perplexity company → Garage Rapid'Vulca : site=https://lesgarages.fr
+17:32:32 [INFO] perplexity_search: Perplexity dirigeant → Garage Rapid'Vulca : pas d'email mais site=https://lesgarages.fr
+17:32:32 [INFO] advanced_enrichment: Email dirigeant → 8 candidats pour robert doutre @ lesgarages.fr (status=ok)
+17:32:34 [INFO] advanced_enrichment: Enrich Garage Rapid'Vulca : email_dir=robert.doutre@lesgarages.fr (probable), strat=0, site=https://lesgarages.fr
+17:32:38 [INFO] perplexity_search: Perplexity → Garage Automobile Marseille : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Les sources list)
+17:32:39 [INFO] perplexity_search: Perplexity company → Garage Automobile Marseille : site=https://automobile.e-pro.fr
+17:32:41 [INFO] perplexity_search: Perplexity dirigeant → Garage Automobile Marseille : pas d'email mais site=https://automobile.e-pro.fr
+17:32:42 [INFO] advanced_enrichment: MX check → automobile.e-pro.fr : pas de MX
+17:32:42 [INFO] advanced_enrichment: Enrich Garage Automobile Marseille : email_dir=- (-), strat=0, site=https://automobile.e-pro.fr
+17:32:46 [INFO] perplexity_search: Perplexity → Mécanique Autos : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Tous les résulta)
+17:32:46 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.youdriver.com pour 'Mécanique Autos'
+17:32:46 [INFO] perplexity_search: Perplexity company → Mécanique Autos : rien trouvé
+17:32:49 [INFO] perplexity_search: Perplexity dirigeant → Mécanique Autos : pas d'email perso trouvé
+17:32:49 [INFO] advanced_enrichment: Enrich Mécanique Autos : email_dir=- (-), strat=0, site=-
+17:32:52 [INFO] perplexity_search: Perplexity → Garage Auto Taddei : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Le site mentionn)
+17:32:52 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.zoominfo.com pour 'Garage Auto Taddei'
+17:32:52 [INFO] perplexity_search: Perplexity company → Garage Auto Taddei : rien trouvé
+17:32:57 [INFO] perplexity_search: Perplexity dirigeant → Garage Auto Taddei : pas d'email perso trouvé
+17:32:57 [INFO] advanced_enrichment: Enrich Garage Auto Taddei : email_dir=- (-), strat=0, site=-
+17:33:02 [INFO] perplexity_search: Perplexity → Garage Chateaubriand : site rejeté (confiance basse: Aucun site web officiel trouvé. Les résultats contiennent uniquement des annuair)
+17:33:03 [INFO] perplexity_search: Perplexity company → Garage Chateaubriand : site=https://www.viedauto.com
+17:33:05 [INFO] perplexity_search: Perplexity dirigeant → Garage Chateaubriand : pas d'email mais site=https://www.viedauto.com
+17:33:06 [INFO] advanced_enrichment: Email dirigeant → 8 candidats pour zahir akmoum @ viedauto.com (status=ok)
+17:33:12 [INFO] advanced_enrichment: Enrich Garage Chateaubriand : email_dir=zahir.akmoum@viedauto.com (probable), strat=0, site=https://www.viedauto.com
+17:33:16 [INFO] perplexity_search: Perplexity → GARAGE DES MURIERS - MARSEILLE : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche. Les URLs présent)
+17:33:16 [INFO] perplexity_search: Perplexity company → GARAGE DES MURIERS - MARSEILLE : site=https://www.viedauto.com
+17:33:19 [INFO] perplexity_search: Perplexity dirigeant → GARAGE DES MURIERS - MARSEILLE : pas d'email mais site=https://www.viedauto.com
+17:33:19 [INFO] advanced_enrichment: Email dirigeant → 20 candidats pour adriana arama @ viedauto.com (status=ok)
+17:33:22 [INFO] advanced_enrichment: Enrich GARAGE DES MURIERS - MARSEILLE : email_dir=adriana.arama@viedauto.com (probable), strat=0, site=https://www.viedauto.com
+17:33:26 [INFO] perplexity_search: Perplexity → GARAGE MÉCANIQUE EXPRESS : site rejeté (confiance basse: Aucun site web officiel trouvé dans les résultats de recherche ; les sources son)
+17:34:57 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://admin.ad.fr pour 'GARAGE MÉCANIQUE EXPRESS'
+17:34:57 [INFO] perplexity_search: Perplexity company → GARAGE MÉCANIQUE EXPRESS : rien trouvé
+17:34:57 [INFO] advanced_enrichment: Enrich GARAGE MÉCANIQUE EXPRESS : email_dir=- (-), strat=0, site=-
+17:36:51 [INFO] advanced_enrichment: Domaine catchall (numbr.co) → direction@numbr.co en stratégique probable
+17:36:51 [INFO] advanced_enrichment: Enrich Numbr - Expert-comptable à Bordeaux : email_dir=- (-), strat=1, site=https://numbr.co/cabinet-expert-comptable-bordeaux/?utm_medium=My-Business
+17:36:54 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.ajc-bordeaux.com pour 'AJC, filiale du Groupe Numans'
+17:36:54 [INFO] perplexity_search: Perplexity company → AJC, filiale du Groupe Numans : 1 email(s)
+17:36:54 [INFO] advanced_enrichment: Enrich AJC, filiale du Groupe Numans : email_dir=- (-), strat=0, site=-
+17:36:58 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://groupeca2.fr pour 'Expert-comptable Mérignac - Groupe CA²'
+17:36:58 [INFO] perplexity_search: Perplexity company → Expert-comptable Mérignac - Groupe CA² : 1 email(s)
+17:36:58 [INFO] advanced_enrichment: Enrich Expert-comptable Mérignac - Groupe CA² : email_dir=- (-), strat=0, site=-
+17:37:01 [INFO] perplexity_search: Perplexity dirigeant → Cabinet Presta : pas d'email mais site=https://www.cabinetpresta.com/
+17:37:02 [INFO] advanced_enrichment: Email dirigeant → 8 candidats pour vincent viaud @ cabinetpresta.com (status=catchall)
+17:37:02 [INFO] advanced_enrichment: Domaine catchall (cabinetpresta.com) → direction@cabinetpresta.com en stratégique probable
+17:37:02 [INFO] advanced_enrichment: Enrich Cabinet Presta : email_dir=vincent.viaud@cabinetpresta.com (probable), strat=1, site=https://www.cabinetpresta.com/
+17:37:04 [INFO] perplexity_search: Perplexity dirigeant → CULTURE COMPTABLE : pas d'email mais site=https://www.culturecomptable.com/
+17:37:05 [INFO] advanced_enrichment: Email dirigeant → 8 candidats pour stephane gros @ culturecomptable.com (status=ok)
+17:37:10 [INFO] advanced_enrichment: Enrich CULTURE COMPTABLE : email_dir=stephane@culturecomptable.com (vérifié), strat=0, site=https://www.culturecomptable.com/
+17:37:12 [INFO] advanced_enrichment: Enrich Cabinet d'experts comptables MRP : email_dir=- (-), strat=0, site=http://www.expert-comptable-mrp.fr/
+17:37:14 [INFO] advanced_enrichment: Enrich EPIPHYSE - Expert-comptable à Bordeaux : email_dir=- (-), strat=0, site=https://epiphyse-conseil.fr/
+17:37:17 [INFO] perplexity_search: Perplexity dirigeant → PMC EXPERTISE COMPTABLE : pas d'email mais site=pmc-expertisecomptable.fr
+17:37:18 [INFO] advanced_enrichment: Email dirigeant → 16 candidats pour celia petrissans @ pmc-expertisecomptable.fr (status=ok)
+17:37:21 [INFO] advanced_enrichment: Enrich PMC EXPERTISE COMPTABLE : email_dir=c.petrissans@pmc-expertisecomptable.fr (vérifié), strat=0, site=http://pmc-expertisecomptable.fr/
+17:37:27 [INFO] advanced_enrichment: Enrich ExCom Conseil - Expert Comptable Bordeaux : email_dir=- (-), strat=0, site=https://www.excomconseil.fr/
+17:37:29 [INFO] perplexity_search: Perplexity dirigeant → Cabinet 12 : pas d'email mais site=http://www.cabinet12.com/
+17:37:29 [INFO] advanced_enrichment: Email dirigeant → 20 candidats pour nicholas menin @ cabinet12.com (status=catchall)
+17:37:29 [INFO] advanced_enrichment: Domaine catchall (cabinet12.com) → direction@cabinet12.com en stratégique probable
+17:37:29 [INFO] advanced_enrichment: Enrich Cabinet 12 : email_dir=nicholas.menin@cabinet12.com (probable), strat=1, site=http://www.cabinet12.com/
+17:37:31 [INFO] advanced_enrichment: Enrich Business Excellence 360 - Cabinet Conseil Bordeaux : email_dir=- (-), strat=0, site=https://www.business-excellence-360.com/
+17:37:34 [INFO] advanced_enrichment: Enrich Ordre des Experts-Comptables Région Nouvelle-Aquitaine : email_dir=- (-), strat=0, site=http://www.oecnouvelle-aquitaine.fr/
+17:37:41 [INFO] advanced_enrichment: Enrich Expert-comptable JMRP Bordeaux : email_dir=- (-), strat=0, site=https://www.jmrp-conseils.fr/
+17:37:44 [INFO] perplexity_search: Perplexity → site rejeté (validation nom/domaine) : https://www.expert-compta-bordeaux.com pour 'MM CONSEILS, cabinet d'expertise comptable'
+17:37:44 [INFO] perplexity_search: Perplexity company → MM CONSEILS, cabinet d'expertise comptable : 1 email(s)
+17:37:45 [INFO] advanced_enrichment: Enrich MM CONSEILS, cabinet d'expertise comptable : email_dir=- (-), strat=0, site=-
+17:37:58 [INFO] advanced_enrichment: Enrich Expert-comptable Bordeaux - ERECApluriel : email_dir=- (-), strat=0, site=https://www.erecapluriel.fr/agences/agence-bordeaux/
+17:38:01 [INFO] advanced_enrichment: Enrich ECCO AUDIT - Expert comptable & commissaire aux comptes : email_dir=- (-), strat=0, site=https://www.eccoaudit.com/
+17:38:06 [INFO] perplexity_search: Perplexity company → CABINET RAFFIER : site=http://www.craffier.fr
+17:38:07 [INFO] advanced_enrichment: Domaine catchall (craffier.fr) → direction@craffier.fr en stratégique probable
+17:38:07 [INFO] advanced_enrichment: Enrich CABINET RAFFIER : email_dir=- (-), strat=1, site=http://www.craffier.fr
+17:38:09 [INFO] advanced_enrichment: Enrich Extencia - Cabinet Comptable : email_dir=- (-), strat=0, site=http://www.extencia.fr/
+17:38:10 [INFO] advanced_enrichment: Domaine catchall (cabinetexpertym.com) → direction@cabinetexpertym.com en stratégique probable
+17:38:10 [INFO] advanced_enrichment: Enrich EXPERTYM - Expert-Comptable Bordeaux : email_dir=- (-), strat=1, site=https://cabinetexpertym.com/
+17:38:16 [INFO] advanced_enrichment: Enrich SOFICO - Cabinet d'Experts Comptables Bordeaux (anciennement Jacques Galban) : email_dir=- (-), strat=0, site=https://sofico64.fr/comptables-bordeaux/
+
+=== Sanity checks ===
+SMTP verifier joignable : True
+Perplexity API key      : configurée
+
+
+======================================================================
+REQUETE : plombier Lyon (cap 20)
+======================================================================
+Scrapé : 20 entreprises
+- avec site_web initial : 18
+- enrich_emails (scraping sites) : 70.2s
+AVANT advanced enrichment :
+  - entreprises avec un email : 7/20
+- enrich_entreprises (API gouv) : 13.7s
+  - dirigeants trouvés : 9/20
+- enrich_advanced : 1006.6s
+APRÈS advanced enrichment :
+  - entreprises avec un email : 11/20
+  - dont vérifié OU probable  : 11/20 (55%)
+    - vérifié  : 1
+    - probable : 10
+Temps total : 1091.2s
+
+======================================================================
+REQUETE : garagiste Marseille (cap 20)
+======================================================================
+Scrapé : 20 entreprises
+- avec site_web initial : 4
+- enrich_emails (scraping sites) : 14.4s
+AVANT advanced enrichment :
+  - entreprises avec un email : 4/20
+- enrich_entreprises (API gouv) : 14.5s
+  - dirigeants trouvés : 12/20
+- enrich_advanced : 231.1s
+APRÈS advanced enrichment :
+  - entreprises avec un email : 7/20
+  - dont vérifié OU probable  : 7/20 (35%)
+    - vérifié  : 4
+    - probable : 3
+Temps total : 260.8s
+
+======================================================================
+REQUETE : expert-comptable Bordeaux (cap 20)
+======================================================================
+Scrapé : 20 entreprises
+- avec site_web initial : 20
+- enrich_emails (scraping sites) : 92.0s
+AVANT advanced enrichment :
+  - entreprises avec un email : 16/20
+- enrich_entreprises (API gouv) : 20.2s
+  - dirigeants trouvés : 4/20
+- enrich_advanced : 86.2s
+APRÈS advanced enrichment :
+  - entreprises avec un email : 19/20
+  - dont vérifié OU probable  : 19/20 (95%)
+    - vérifié  : 6
+    - probable : 13
+Temps total : 199.2s
+
+======================================================================
+RÉCAP GLOBAL
+======================================================================
+Requete                       | N  | Avant | Après | Vérif | Prob | Quality % 
+------------------------------------------------------------------------------
+plombier Lyon                | 20 |     7 |    11 |     1 |   10 | 55.0%
+garagiste Marseille          | 20 |     4 |     7 |     4 |    3 | 35.0%
+expert-comptable Bordeaux    | 20 |    16 |    19 |     6 |   13 | 95.0%
+------------------------------------------------------------------------------
+TOTAL                        | 60 |    27 |    37 |     - |    - | 61.7%
+
+Cible : >= 40% vérifié + probable
+Atteint : OUI ✓
+
+Détails écrits dans : run_test_results_pplx2.json

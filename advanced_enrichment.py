@@ -175,27 +175,38 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
     if domain_status == "catchall":
         return candidates[0], "probable"
 
-    # Domaine "unknown" (SMTP ne répond pas aux RCPT — typiquement OVH/IONOS) :
-    # selon la spec, sans Debounce en fallback on classe le candidat principal
-    # en "probable". On ne teste pas chaque candidat (réponse identique = unknown).
-    if domain_status == "unknown" and smtp_verifier.is_available():
-        return candidates[0], "probable"
+    # Pas de SMTP du tout : best guess non validé
+    if not smtp_verifier.is_available():
+        return candidates[0], "incertain"
 
-    # Domaine "ok" : tester chaque candidat (SMTP donne des réponses fiables)
-    if smtp_verifier.is_available() and domain_status == "ok":
-        for email in candidates[:6]:
-            check = smtp_verifier.verify_email(email)
-            if check == "valid":
-                return email, "vérifié"
-            if check == "catchall":
-                return email, "probable"
-            if check == "error":
-                break
-            time.sleep(0.2)
-        # Tous candidats invalidés sur un service fiable → on abandonne
+    # On tente verify_email sur les top candidats. Cela couvre :
+    # - domain_status == "ok" : verify donne des réponses fiables (valid/invalid)
+    # - domain_status == "unknown" : le /catchall a échoué mais /verify peut marcher,
+    #   et même s'il dit "unknown" c'est OVH/IONOS → on classe en "probable" (spec)
+    limit = 6 if domain_status == "ok" else 4
+    invalid_count = 0
+    for email in candidates[:limit]:
+        check = smtp_verifier.verify_email(email)
+        if check == "valid":
+            return email, "vérifié"
+        if check == "catchall":
+            return email, "probable"
+        if check == "unknown":
+            # Serveur MX accepte la connexion mais ne tranche pas (OVH/IONOS).
+            # Spec : sans Debounce en fallback → "probable" sur le pattern principal.
+            return candidates[0], "probable"
+        if check == "invalid":
+            invalid_count += 1
+        if check in ("error", "no_mx"):
+            # error = service HS, no_mx = pas d'email du tout
+            break
+        time.sleep(0.2)
+
+    # Service "ok" + tous les candidats invalides → SMTP a tranché négatif
+    if domain_status == "ok" and invalid_count >= 1:
         return None, None
 
-    # Pas de SMTP du tout (mais MX OK via DNS) → "incertain" : best guess non validé
+    # Pas de signal SMTP exploitable (service flaky / timeout) → best guess
     return candidates[0], "incertain"
 
 

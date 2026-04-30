@@ -1,0 +1,737 @@
+{
+  "results": [
+    {
+      "label": "plombier Lyon",
+      "query": "plombier",
+      "n": 20,
+      "with_email_before": 7,
+      "with_email_after": 11,
+      "verifie": 1,
+      "probable": 10,
+      "quality_total": 11,
+      "quality_pct": 55.0,
+      "elapsed_s": 1091.2,
+      "samples": [
+        {
+          "nom": "Plombier Croix Rousse",
+          "site_web": "https://plombier-lyon4.fr/",
+          "dirigeant": "CHRISTOPHE SEGURA (SEGURA)",
+          "email_dirigeant": "christophe.segura@plombier-lyon4.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: christophe.segura@plombier-lyon4.fr (probable)"
+        },
+        {
+          "nom": "A.C PLOMBERIE",
+          "site_web": "https://www.ac-plomberie-renovation.fr/",
+          "dirigeant": "BRAHIM OUCHENE (OUCHENE)",
+          "email_dirigeant": "brahim.ouchene@ac-plomberie-renovation.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "jc.gigniac@viteundevis.com",
+          "emails_confiance": "probable",
+          "log": "site existant validé | email dirigeant: brahim.ouchene@ac-plomberie-renovation.fr (probable)"
+        },
+        {
+          "nom": "CEDIR - Plombier & Électricien",
+          "site_web": "https://www.urgence-lyon.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Plombier eau top",
+          "site_web": "http://plombier-lyon6.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Plombier 7",
+          "site_web": "https://plombier7.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@plombier7.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Eminence Plomberie",
+          "site_web": "http://www.eminence-plomberie.fr/",
+          "dirigeant": "AURELIEN SCALA (SCALA)",
+          "email_dirigeant": "aurelien.scala@eminence-plomberie.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: aurelien.scala@eminence-plomberie.fr (probable)"
+        },
+        {
+          "nom": "Plomberie des Pentes",
+          "site_web": "http://plomberiedespentes.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "plomberiedespentes@online.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Plomberie Zinguerie",
+          "site_web": "",
+          "dirigeant": "ANTOINE BARBAT (BARBAT)",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Ys plomberie",
+          "site_web": "http://ys-plomberie.hubside.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "FOREVER SERVICES PLOMBERIE",
+          "site_web": "http://www.foreverservicesplomberie.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Blicko",
+          "site_web": "https://www.blicko.fr/devis-plombier-fg/",
+          "dirigeant": "GRÉGORY GRANGER",
+          "email_dirigeant": "greg@blicko.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: greg@blicko.fr (probable)"
+        },
+        {
+          "nom": "VES PLOMBERIE",
+          "site_web": "",
+          "dirigeant": "LUDOVIC VESQUE ROCHE (VESQUE)",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Techniciens Lyonnais Plombier & Débouchage Lyon",
+          "site_web": "https://www.technicienlyonnais.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "franckmonti69@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "BL Plomberie",
+          "site_web": "http://www.blplomberie.fr/",
+          "dirigeant": "BENJAMIN LIBRATY (LIBRATY)",
+          "email_dirigeant": "benjamin.libraty@blplomberie.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "contact@blplomberie.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé | email dirigeant: benjamin.libraty@blplomberie.fr (probable)"
+        },
+        {
+          "nom": "Groupe Artisan",
+          "site_web": "https://groupe-artisan.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@groupe-artisan.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Entreprise Renaudin",
+          "site_web": "https://entreprise-renaudin.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "CHAPUIS PLOMBERIE",
+          "site_web": "https://chapuisplomberie.fr/",
+          "dirigeant": "FREDERIC CHAPUIS (CHAPUIS)",
+          "email_dirigeant": "frederic.chapuis@chapuisplomberie.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: frederic.chapuis@chapuisplomberie.fr (probable)"
+        },
+        {
+          "nom": "Sos Intervention - Plombier Lyon",
+          "site_web": "https://sosintervention.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Entreprise Coudreau",
+          "site_web": "http://www.coudreau.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@coudreau.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Fcb concept",
+          "site_web": "http://fcbconcept.com/?utm_source=gmb&utm_medium=referral",
+          "dirigeant": "BERTRAND FAVRE-COUTILLET",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: introuvable"
+        }
+      ]
+    },
+    {
+      "label": "garagiste Marseille",
+      "query": "garagiste",
+      "n": 20,
+      "with_email_before": 4,
+      "with_email_after": 7,
+      "verifie": 4,
+      "probable": 3,
+      "quality_total": 7,
+      "quality_pct": 35.0,
+      "elapsed_s": 260.8,
+      "samples": [
+        {
+          "nom": "Garage Tozzi",
+          "site_web": "https://garagetozzi.wordpress.com/",
+          "dirigeant": "HAMLET KOTCHESIAN",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "garagetozzi@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé | email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage MARCEAU",
+          "site_web": "https://www.vroomly.com/garages/garage-marceau-13003-marceau/",
+          "dirigeant": "MR TEJEDOR MARCELLE HUGUETTE",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "pieces@vroomly.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Garage Mekki",
+          "site_web": "",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": ""
+        },
+        {
+          "nom": "LUXE GARAGE",
+          "site_web": "",
+          "dirigeant": "NIJAT MEHDIYEV",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage Elio",
+          "site_web": "https://lesgarages.fr",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site Perplexity: https://lesgarages.fr"
+        },
+        {
+          "nom": "Garage Banck",
+          "site_web": "",
+          "dirigeant": "PATRICE DIDONNA",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage d'Arras",
+          "site_web": "",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": ""
+        },
+        {
+          "nom": "Garage Des Chartreux - Mécanique et Carrosserie - FRANCHISE 100 % OFFERTE 13 Marseille",
+          "site_web": "https://garagechartreux.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "garagechartreux@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Garage Parisi",
+          "site_web": "https://garage-parisi-avia.fr/",
+          "dirigeant": "STEPHANE PARISI",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site GMaps: https://garage-parisi-avia.fr/ | email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage Locarno",
+          "site_web": "https://garagelocarno.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "garagelocarno@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Garage De L'avenir",
+          "site_web": "https://reseau.citroen.fr/reparateur-marseille-06",
+          "dirigeant": "MICHAEL LUCHESSA",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site GMaps: https://reseau.citroen.fr/reparateur-marseille-06 | email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage PUGET",
+          "site_web": "",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": ""
+        },
+        {
+          "nom": "Garage Carlotti",
+          "site_web": "",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": ""
+        },
+        {
+          "nom": "Garage Rapid'Vulca",
+          "site_web": "https://lesgarages.fr",
+          "dirigeant": "ROBERT DOUTRE",
+          "email_dirigeant": "robert.doutre@lesgarages.fr",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site Perplexity: https://lesgarages.fr | email dirigeant: robert.doutre@lesgarages.fr (probable)"
+        },
+        {
+          "nom": "Garage Automobile Marseille",
+          "site_web": "https://automobile.e-pro.fr",
+          "dirigeant": "AHMED BENMAMMERI",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site Perplexity: https://automobile.e-pro.fr | email dirigeant: introuvable"
+        },
+        {
+          "nom": "Mécanique Autos",
+          "site_web": "",
+          "dirigeant": "GREGOIRE ACHEJIAN",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage Auto Taddei",
+          "site_web": "",
+          "dirigeant": "FABRICE OLIVE",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "email dirigeant: introuvable"
+        },
+        {
+          "nom": "Garage Chateaubriand",
+          "site_web": "https://www.viedauto.com",
+          "dirigeant": "ZAHIR AKMOUM",
+          "email_dirigeant": "zahir.akmoum@viedauto.com",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site Perplexity: https://www.viedauto.com | email dirigeant: zahir.akmoum@viedauto.com (probable)"
+        },
+        {
+          "nom": "GARAGE DES MURIERS - MARSEILLE",
+          "site_web": "https://www.viedauto.com",
+          "dirigeant": "ADRIANA MAKHLOUF (ARAMA)",
+          "email_dirigeant": "adriana.arama@viedauto.com",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site Perplexity: https://www.viedauto.com | email dirigeant: adriana.arama@viedauto.com (probable)"
+        },
+        {
+          "nom": "GARAGE MÉCANIQUE EXPRESS",
+          "site_web": "",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": ""
+        }
+      ]
+    },
+    {
+      "label": "expert-comptable Bordeaux",
+      "query": "expert-comptable",
+      "n": 20,
+      "with_email_before": 16,
+      "with_email_after": 19,
+      "verifie": 6,
+      "probable": 13,
+      "quality_total": 19,
+      "quality_pct": 95.0,
+      "elapsed_s": 199.2,
+      "samples": [
+        {
+          "nom": "Numbr - Expert-comptable à Bordeaux",
+          "site_web": "https://numbr.co/cabinet-expert-comptable-bordeaux/?utm_medium=My-Business",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [
+            [
+              "direction@numbr.co",
+              "direction",
+              "probable"
+            ]
+          ],
+          "emails": "hello@numbr.co",
+          "emails_confiance": "probable",
+          "log": "site existant validé | 1 email(s) stratégique(s)"
+        },
+        {
+          "nom": "AJC, filiale du Groupe Numans",
+          "site_web": "http://ajc-bordeaux.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@ajc-bordeaux.com",
+          "emails_confiance": "probable",
+          "log": "site rejeté (annuaire): http://ajc-bordeaux.com/"
+        },
+        {
+          "nom": "Expert-comptable Mérignac - Groupe CA²",
+          "site_web": "https://groupeca2.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@groupeca2.fr",
+          "emails_confiance": "probable",
+          "log": "site existant rejeté (validation)"
+        },
+        {
+          "nom": "Cabinet Presta",
+          "site_web": "https://www.cabinetpresta.com/",
+          "dirigeant": "VINCENT VIAUD",
+          "email_dirigeant": "vincent.viaud@cabinetpresta.com",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [
+            [
+              "direction@cabinetpresta.com",
+              "direction",
+              "probable"
+            ]
+          ],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé | email dirigeant: vincent.viaud@cabinetpresta.com (probable) | 1 email(s) stratégique(s)"
+        },
+        {
+          "nom": "CULTURE COMPTABLE",
+          "site_web": "https://www.culturecomptable.com/",
+          "dirigeant": "STEPHANE GROS",
+          "email_dirigeant": "stephane@culturecomptable.com",
+          "email_dirigeant_confiance": "vérifié",
+          "emails_strategiques": [],
+          "emails": "g.dupont@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé | email dirigeant: stephane@culturecomptable.com (vérifié)"
+        },
+        {
+          "nom": "Cabinet d'experts comptables MRP",
+          "site_web": "http://www.expert-comptable-mrp.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "experts@cabinet-mrp.fr",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "EPIPHYSE - Expert-comptable à Bordeaux",
+          "site_web": "https://epiphyse-conseil.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "PMC EXPERTISE COMPTABLE",
+          "site_web": "http://pmc-expertisecomptable.fr/",
+          "dirigeant": "CELIA PETRISSANS (PETRISSANS)",
+          "email_dirigeant": "c.petrissans@pmc-expertisecomptable.fr",
+          "email_dirigeant_confiance": "vérifié",
+          "emails_strategiques": [],
+          "emails": "hello@pmc-expertisecomptable.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé | email dirigeant: c.petrissans@pmc-expertisecomptable.fr (vérifié)"
+        },
+        {
+          "nom": "ExCom Conseil - Expert Comptable Bordeaux",
+          "site_web": "https://www.excomconseil.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@excomconseil.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Cabinet 12",
+          "site_web": "http://www.cabinet12.com/",
+          "dirigeant": "NICHOLAS GUIFFANT MENIN",
+          "email_dirigeant": "nicholas.menin@cabinet12.com",
+          "email_dirigeant_confiance": "probable",
+          "emails_strategiques": [
+            [
+              "direction@cabinet12.com",
+              "direction",
+              "probable"
+            ]
+          ],
+          "emails": "contact@cabinet12.com",
+          "emails_confiance": "probable",
+          "log": "site existant validé | email dirigeant: nicholas.menin@cabinet12.com (probable) | 1 email(s) stratégique(s)"
+        },
+        {
+          "nom": "Business Excellence 360 - Cabinet Conseil Bordeaux",
+          "site_web": "https://www.business-excellence-360.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@be360france.co",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Ordre des Experts-Comptables Région Nouvelle-Aquitaine",
+          "site_web": "http://www.oecnouvelle-aquitaine.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "services@oecnouvelle-aquitaine.fr",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "Expert-comptable JMRP Bordeaux",
+          "site_web": "https://www.jmrp-conseils.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "jp.jmrp@gmail.com",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "MM CONSEILS, cabinet d'expertise comptable",
+          "site_web": "https://www.expert-compta-bordeaux.com/?utm_source=gmb",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contact@cabinet-mercie.com",
+          "emails_confiance": "probable",
+          "log": "site rejeté (annuaire): https://www.expert-compta-bordeaux.com/?utm_source=gmb"
+        },
+        {
+          "nom": "Expert-comptable Bordeaux - ERECApluriel",
+          "site_web": "https://www.erecapluriel.fr/agences/agence-bordeaux/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "lege@erecapluriel.fr",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "ECCO AUDIT - Expert comptable & commissaire aux comptes",
+          "site_web": "https://www.eccoaudit.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "info@mysite.com",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "CABINET RAFFIER",
+          "site_web": "http://www.craffier.fr",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [
+            [
+              "direction@craffier.fr",
+              "direction",
+              "probable"
+            ]
+          ],
+          "emails": "",
+          "emails_confiance": "",
+          "log": "site existant rejeté (validation) | site Perplexity: http://www.craffier.fr | 1 email(s) stratégique(s)"
+        },
+        {
+          "nom": "Extencia - Cabinet Comptable",
+          "site_web": "http://www.extencia.fr/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "extencia@extencia.fr",
+          "emails_confiance": "vérifié",
+          "log": "site existant validé"
+        },
+        {
+          "nom": "EXPERTYM - Expert-Comptable Bordeaux",
+          "site_web": "https://cabinetexpertym.com/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [
+            [
+              "direction@cabinetexpertym.com",
+              "direction",
+              "probable"
+            ]
+          ],
+          "emails": "contact@cabinetexpertym.com",
+          "emails_confiance": "probable",
+          "log": "site existant validé | 1 email(s) stratégique(s)"
+        },
+        {
+          "nom": "SOFICO - Cabinet d'Experts Comptables Bordeaux (anciennement Jacques Galban)",
+          "site_web": "https://sofico64.fr/comptables-bordeaux/",
+          "dirigeant": "",
+          "email_dirigeant": "",
+          "email_dirigeant_confiance": "",
+          "emails_strategiques": [],
+          "emails": "contactbiarritz@sofico64.com",
+          "emails_confiance": "probable",
+          "log": "site existant validé"
+        }
+      ]
+    }
+  ],
+  "global_quality_pct": 61.7
+}

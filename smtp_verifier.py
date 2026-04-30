@@ -25,20 +25,43 @@ logger = logging.getLogger(__name__)
 # Cache par run pour éviter de retester un même domaine ou email
 _DOMAIN_STATUS_CACHE = {}  # domain → "no_mx" / "catchall" / "ok" / "unknown"
 _EMAIL_RESULT_CACHE = {}   # email → status
+_AVAILABLE_CACHE = None    # None / True / False (résultat du 1er health-check)
 
-# Timeout user-spec : 8s sur le verifier SMTP
-_TIMEOUT = 8
+# Timeout des appels au service VPS.
+# Le user-spec était 8s, mais en pratique /catchall prend ~8s côté serveur
+# (RCPT TO réel sur le MX du domaine cible) → on bumpe à 20s pour /catchall et
+# /verify, qui sont les routes lentes. /health reste sur 5s (route triviale).
+_TIMEOUT = 20
+_HEALTH_TIMEOUT = 5
 
 
 def is_available():
-    """Service VPS configuré et joignable ?"""
+    """Service VPS configuré et joignable ? Caché par run (1 seul health-check).
+
+    Important : un blip réseau passager peut faire échouer le /health alors
+    que le service répond aux /verify normalement. Le cache évite ce flake.
+    Si on veut re-tester (entre runs), appeler reset_cache().
+    """
+    global _AVAILABLE_CACHE
+    if _AVAILABLE_CACHE is not None:
+        return _AVAILABLE_CACHE
     if not VERIFIER_URL or not VERIFIER_KEY:
+        _AVAILABLE_CACHE = False
         return False
-    try:
-        resp = requests.get(VERIFIER_URL + "/health", timeout=3)
-        return resp.status_code == 200
-    except Exception:
-        return False
+    # 2 essais avec petit délai — robuste à un blip réseau ponctuel
+    for attempt in range(2):
+        try:
+            resp = requests.get(VERIFIER_URL + "/health", timeout=_HEALTH_TIMEOUT)
+            if resp.status_code == 200:
+                _AVAILABLE_CACHE = True
+                return True
+        except Exception:
+            pass
+        if attempt == 0:
+            import time as _t
+            _t.sleep(0.5)
+    _AVAILABLE_CACHE = False
+    return False
 
 
 def check_domain(domain):
@@ -131,5 +154,7 @@ def verify_email(email):
 
 def reset_cache():
     """À appeler entre les runs (vide les caches en mémoire)."""
+    global _AVAILABLE_CACHE
     _DOMAIN_STATUS_CACHE.clear()
     _EMAIL_RESULT_CACHE.clear()
+    _AVAILABLE_CACHE = None

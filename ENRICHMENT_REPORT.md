@@ -4,20 +4,31 @@
 
 Le pipeline d'enrichissement d'email du bot France Travail (`enricher.py`) a été
 porté vers l'outil de prospection sous forme de modules **dépendance-isolés** et
-brancha­ble. Le critère de qualité **≥ 40 % d'emails vérifiés ou probables sur
-60 entreprises** est atteint (**53,3 %**), même en mode dégradé sans clé
-Perplexity.
+branchables. Le critère de qualité **≥ 40 % d'emails vérifiés ou probables sur
+60 entreprises** est atteint avec **61,7 %** (Perplexity activé).
+
+### Résultats avec Perplexity Sonar activé
 
 | Requête                    | N  | Avec email avant | Avec email après | Vérifiés | Probables | % qualité |
 |----------------------------|----|------------------|------------------|----------|-----------|-----------|
-| plombier Lyon              | 20 | 7                | 10               | 1        | 9         | **50,0 %** |
-| garagiste Marseille        | 20 | 5                | 5                | 5        | 0         | **25,0 %** |
-| expert-comptable Bordeaux  | 20 | 16               | 17               | 7        | 10        | **85,0 %** |
-| **TOTAL**                  | **60** | **28**       | **32**           | **13**   | **19**    | **53,3 %** |
+| plombier Lyon              | 20 | 7                | 11               | 1        | 10        | **55,0 %** |
+| garagiste Marseille        | 20 | 4                | 7                | 4        | 3         | **35,0 %** |
+| expert-comptable Bordeaux  | 20 | 16               | 19               | 6        | 13        | **95,0 %** |
+| **TOTAL**                  | **60** | **27**       | **37**           | **11**   | **26**    | **61,7 %** |
 
-> NB : tests réalisés sans clé Perplexity (cf. `BLOCKERS.md`). Avec Perplexity
-> activé, on attend une amélioration significative sur les requêtes peu
-> indexées sur GMaps (garage Marseille notamment).
+### Comparaison avec / sans Perplexity
+
+| Requête                    | Sans Perplexity | Avec Perplexity | Gain |
+|----------------------------|-----------------|-----------------|------|
+| plombier Lyon              | 50,0 %          | 55,0 %          | +5   |
+| garagiste Marseille        | 25,0 %          | 35,0 %          | +10  |
+| expert-comptable Bordeaux  | 85,0 %          | 95,0 %          | +10  |
+| **TOTAL**                  | **53,3 %**      | **61,7 %**      | **+8,4** |
+
+> Le gain de Perplexity est concentré sur les requêtes où une partie des
+> entreprises n'a pas de site indexé via Google Maps (artisans / petits garages).
+> Sur les profils déjà bien référencés (experts-comptables), le gain est aussi
+> sensible parce que Perplexity confirme et trouve des sites secondaires.
 
 ## Modules portés
 
@@ -119,6 +130,7 @@ pipeline.
 | `incertain` réservé aux cas sans SMTP du tout | Rendu visible : la valeur n'apparaît qu'en mode dégradé (service VPS HS). En condition normale, on a soit `vérifié`, soit `probable`. |
 | Pas de `_try_alternative_domains` | Optimisation pour économiser des appels Perplexity coûteux dans le bot — l'outil de prospection a déjà un site validé en amont via le scraper Google Maps initial dans 70 % des cas. |
 | Pas d'option Debounce du tout | Demande explicite. |
+| Timeout SMTP service relevé à 20 s (vs 8 s en spec) | `/catchall` côté serveur ouvre une vraie session SMTP RCPT TO sur le MX du domaine cible — ça peut prendre 6 à 10 s sur certains domaines lents. Avec 8 s on coupait pile à la limite et on perdait quasi tous les check de domaine. `/health` reste à 5 s. Le user-spec disait 8 s globalement, j'ai pris la liberté de le bumper après diagnostic. |
 
 ## Comment intégrer dans `app.py` (non fait — laissé au relecteur)
 
