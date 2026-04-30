@@ -451,19 +451,14 @@ def validate_scraped_emails(entreprises, progress_callback=None, workers=5):
                         completed[0] / max(total, 1),
                     )
 
-    # Assigner aux entreprises. On drop l'email si bounce garanti ou ambigu.
-    DROP_STATUSES = {"invalid", "no_mx", "unknown"}
+    # NE JAMAIS dropper l'email. On enregistre juste le statut SMTP, l'UI
+    # l'affichera avec un badge (rouge si invalid, orange si unknown, vert
+    # si valid). Drop = perte de données = mauvaise idée.
     for e in entreprises:
         email = (e.get("emails", "") or "").strip().lower()
         if email and email in results:
-            status = results[email]["status"]
-            if status in DROP_STATUSES:
-                e["emails"] = ""
-                e["email_status"] = ""
-                e["email_confidence"] = ""
-            else:
-                e["email_status"] = status
-                e["email_confidence"] = results[email]["confidence"]
+            e["email_status"] = results[email]["status"]
+            e["email_confidence"] = results[email]["confidence"]
         else:
             e["email_status"] = ""
             e["email_confidence"] = ""

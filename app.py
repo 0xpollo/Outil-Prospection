@@ -15,7 +15,17 @@ from email_enricher import enrich_emails
 from entreprise_enricher import enrich_entreprises
 from email_finder import enrich_nominative_emails, validate_scraped_emails
 from scoring import calculate_scores, score_color, score_label
-from database import save_search, get_searches, get_search_results, delete_search, delete_all_history, update_entreprises
+from database import (
+    save_search, get_searches, get_search_results, delete_search,
+    delete_all_history, update_entreprises,
+    create_job, get_job, list_jobs, cancel_job, delete_job,
+)
+import perplexity_search
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ImportError:  # extension optionnelle ; sans elle, refresh manuel
+    st_autorefresh = None
 
 
 @st.cache_data(show_spinner=False)
@@ -547,7 +557,7 @@ def render_results_table(results, show_deja_connue=False):
 
 
 # --- Onglets ---
-tab_recherche, tab_historique = st.tabs(["Recherche", "Historique"])
+tab_recherche, tab_jobs, tab_historique = st.tabs(["Recherche", "Jobs", "Historique"])
 
 
 # ===================== ONGLET RECHERCHE =====================
@@ -559,22 +569,31 @@ with tab_recherche:
         "approfondie": "Recherche approfondie (~15s, ~500 r\u00e9sultats)",
         "france": "France enti\u00e8re (~3-5 min, milliers de r\u00e9sultats)",
     }
-    col_mode, col_emails, col_dir = st.columns([2, 1, 1])
+    col_mode, col_advanced = st.columns([2, 2])
     with col_mode:
         mode_recherche = st.selectbox(
-            "Mode de recherche",
+            "Mode de scraping",
             options=list(mode_labels.keys()),
             format_func=lambda k: mode_labels[k],
         )
-    with col_emails:
-        search_emails = st.checkbox("Rechercher les emails (plus lent)", value=(mode_recherche == "simple"))
-    with col_dir:
-        search_dirigeants = st.checkbox(
-            "Rechercher les dirigeants",
+    with col_advanced:
+        pplx_available = perplexity_search.is_available()
+        enable_advanced = st.checkbox(
+            "Enrichissement avancé (Perplexity + emails + dirigeants)",
             value=False,
-            help="Enrichit chaque prospect avec le nom du dirigeant via l'API data.gouv.fr (INSEE + INPI). "
-                 "Ajoute ~0.2s par prospect.",
+            disabled=not pplx_available,
+            help=(
+                "Active TOUT : scraping emails, API gouv (dirigeants), Perplexity Sonar "
+                "(site officiel + email dirigeant), validation SMTP, emails stratégiques. "
+                "~$0.0075 / entreprise enrichie. Désactivé = scraping simple sans email."
+                if pplx_available else
+                "PERPLEXITY_API_KEY non configurée — activer dans .env"
+            ),
         )
+
+    # Variables dérivées (pas de toggles séparés : tout est piloté par enable_advanced)
+    search_emails = enable_advanced
+    search_dirigeants = enable_advanced
 
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -634,15 +653,13 @@ with tab_recherche:
             max_results = 999999
 
     # --- Paramètres avancés ---
-    with st.expander("Param\u00e8tres de recherche"):
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            note_minimum = st.slider("Note Google minimum", 0.0, 5.0, 0.0, 0.5)
-        with col_f2:
-            nb_avis_minimum = st.number_input("Nombre d'avis minimum", min_value=0, value=0, step=5,
-                                               help="Filtrer les petites structures avec peu de visibilit\u00e9")
-
-        col_f3, col_f4, col_f5, col_f6 = st.columns(4)
+    with st.expander("Filtres et options"):
+        st.caption(
+            "Ces filtres s'appliquent au scraping initial (ils excluent les "
+            "r\u00e9sultats Google Maps qui n'ont pas l'info). Ils ne suppriment "
+            "rien apr\u00e8s enrichissement."
+        )
+        col_f3, col_f4, col_f5 = st.columns(3)
         with col_f3:
             telephone_requis = st.checkbox("Uniquement avec t\u00e9l\u00e9phone")
         with col_f4:
@@ -650,15 +667,84 @@ with tab_recherche:
                                               help="Ne garder que les num\u00e9ros de t\u00e9l\u00e9phone portable (06 ou 07)")
         with col_f5:
             site_web_requis = st.checkbox("Uniquement avec site web")
-        with col_f6:
-            email_requis = st.checkbox("Uniquement avec email")
+        # email_requis retir\u00e9 : c'est un filtre d'affichage, pas de pipeline.
+        # L'utilisateur peut filtrer la table de r\u00e9sultats lui-m\u00eame.
+        email_requis = False
+
+        if enable_advanced:
+            advanced_max = st.slider(
+                "Limite d'enrichissement Perplexity (top N par score)",
+                min_value=10, max_value=500, value=100, step=10,
+                help="Cap le nombre d'entreprises enrichies pour contr\u00f4ler le co\u00fbt.",
+            )
+            cost = round(advanced_max * 0.0075, 2)
+            st.caption(
+                "Co\u00fbt estim\u00e9 : ~{} USD par recherche ({} entreprises \u00d7 0,0075 USD).".format(
+                    "{:.2f}".format(cost), advanced_max,
+                )
+            )
+        else:
+            advanced_max = 0
+
+    # Filtres avis Google retir\u00e9s (jamais utilis\u00e9s en pratique)
+    note_minimum = 0.0
+    nb_avis_minimum = 0
 
     st.markdown("")  # petit espace
 
-    if st.button("Rechercher", type="primary", use_container_width=True):
+    if st.button("Lancer la recherche", type="primary", use_container_width=True):
         if not activite or (not zones_selected and mode_recherche != "france"):
             st.warning("Veuillez remplir le domaine d'activit\u00e9" + (" et la zone." if mode_recherche != "france" else "."))
         else:
+            # Construire le label de zone (multi-villes ou unique)
+            if mode_recherche == "france":
+                zone_label = "France enti\u00e8re"
+            elif len(zones_selected) > 1:
+                zone_label = ", ".join(zones_selected)
+            else:
+                zone_label = zone_selected if zone_selected else zone
+
+            # L'enrichissement avancé exige les emails + dirigeants en amont
+            # (Perplexity a besoin du nom pour générer les patterns email).
+            # On force ces étapes à True quand l'avancé est coché. enrich_nominative
+            # est désactivé sous l'avancé : redondant avec find_dirigeant_email.
+            effective_search_emails = bool(search_emails or enable_advanced)
+            effective_search_dirigeants = bool(search_dirigeants or enable_advanced)
+            effective_enrich_nominative = bool(search_dirigeants and not enable_advanced)
+
+            job_params = {
+                "max_results": int(max_results),
+                "note_minimum": float(note_minimum),
+                "nb_avis_minimum": int(nb_avis_minimum),
+                "telephone_requis": bool(telephone_requis),
+                "portable_uniquement": bool(portable_uniquement),
+                "site_web_requis": bool(site_web_requis),
+                "email_requis": bool(email_requis),
+                "search_emails": effective_search_emails,
+                "validate_emails": effective_search_emails,
+                "search_dirigeants": effective_search_dirigeants,
+                "enrich_nominative": effective_enrich_nominative,
+                "enrich_advanced": bool(enable_advanced),
+                "do_perplexity": bool(enable_advanced),
+                "do_strategic": bool(enable_advanced),
+                "advanced_max": int(advanced_max) if enable_advanced else None,
+                "code_postal": code_postal,
+                "geo_lat": geo_lat,
+                "geo_lng": geo_lng,
+                "mode": mode_recherche,
+                "zones_selected": zones_selected,
+            }
+
+            job_id = create_job(activite, zone_label, job_params)
+            st.success(
+                "Job #{} cr\u00e9\u00e9 : \u00ab {} \u00bb \u00e0 {}. Suivi dans l'onglet **Jobs**.".format(
+                    job_id, activite, zone_label,
+                )
+            )
+            st.session_state["last_job_id"] = job_id
+            # Le bloc legacy ci-dessous n'est plus ex\u00e9cut\u00e9 (plac\u00e9 sous 'if False'
+            # pour conserver le code de r\u00e9f\u00e9rence le temps d'une session).
+        if False:
             progress_bar = st.progress(0)
             status_text = st.empty()
             error_container = {"message": None}
@@ -797,7 +883,18 @@ with tab_recherche:
                 st.session_state["search_activite"] = activite
                 st.session_state["search_zone"] = zone_label
 
-    # --- Résultats ---
+    # --- Résultats du dernier job complété (rechargés depuis l'historique) ---
+    last_job_id = st.session_state.get("last_job_id")
+    if last_job_id:
+        last_job = get_job(last_job_id)
+        if last_job and last_job.get("status") == "done" and last_job.get("search_id"):
+            sid = last_job["search_id"]
+            if st.session_state.get("loaded_search_id") != sid:
+                st.session_state["results"] = get_search_results(sid)
+                st.session_state["search_activite"] = last_job.get("activite", "")
+                st.session_state["search_zone"] = last_job.get("zone", "")
+                st.session_state["loaded_search_id"] = sid
+
     if "results" in st.session_state and st.session_state["results"]:
         results = st.session_state["results"]
 
@@ -886,6 +983,114 @@ with tab_recherche:
                 mime="text/csv",
                 use_container_width=True,
             )
+
+
+# ===================== ONGLET JOBS =====================
+with tab_jobs:
+    st.markdown("### Jobs en cours et récents")
+    st.caption(
+        "Le worker exécute les recherches en arrière-plan. Tu peux fermer le "
+        "navigateur, le job continuera et tu retrouveras les résultats ici à ton retour."
+    )
+
+    # Auto-refresh tant qu'au moins un job est pending/running
+    _running_jobs = list_jobs(limit=10, status_in=["pending", "running"])
+    if _running_jobs and st_autorefresh is not None:
+        st_autorefresh(interval=3000, key="jobs_refresh")
+
+    col_filter, col_refresh = st.columns([3, 1])
+    with col_filter:
+        statut_filtre = st.multiselect(
+            "Filtre statuts",
+            options=["pending", "running", "done", "failed", "cancelled"],
+            default=["pending", "running", "done"],
+        )
+    with col_refresh:
+        if st.button("Rafraîchir", use_container_width=True):
+            st.rerun()
+
+    jobs = list_jobs(limit=50, status_in=statut_filtre or None)
+    if not jobs:
+        st.info("Aucun job. Lance une recherche depuis l'onglet **Recherche**.")
+    else:
+        for j in jobs:
+            status = j["status"]
+            badge = {
+                "pending":   "🟡 En attente",
+                "running":   "🔵 En cours",
+                "done":      "🟢 Terminé",
+                "failed":    "🔴 Échec",
+                "cancelled": "⚪ Annulé",
+            }.get(status, status)
+
+            with st.container():
+                col_main, col_act = st.columns([5, 1])
+                with col_main:
+                    st.markdown(
+                        "**#{} — {} → {}**  · {}".format(
+                            j["id"], j["activite"], j["zone"], badge,
+                        )
+                    )
+                    if status == "running":
+                        st.progress(min(float(j.get("progress") or 0.0), 1.0))
+                        st.caption(j.get("message") or "...")
+                    elif status == "pending":
+                        st.caption(
+                            "En file d'attente depuis {} (worker pas encore disponible).".format(
+                                j.get("created_at") or "?"
+                            )
+                        )
+                    elif status == "done":
+                        st.caption(
+                            "Terminé · {} entreprise(s) · {}".format(
+                                j.get("results_count") or 0, j.get("finished_at") or "",
+                            )
+                        )
+                        # Détails par étape (si stats stockées)
+                        stats_raw = j.get("stats_json") or ""
+                        if stats_raw:
+                            try:
+                                _stats = json.loads(stats_raw)
+                            except Exception:
+                                _stats = {}
+                            if _stats:
+                                bits = []
+                                if "scraping" in _stats:
+                                    bits.append("scraping {}".format(_stats["scraping"]))
+                                if "with_email_after_scraping" in _stats:
+                                    bits.append("emails site {}".format(_stats["with_email_after_scraping"]))
+                                if "valid_emails" in _stats:
+                                    bits.append("SMTP valid {}".format(_stats["valid_emails"]))
+                                if "dirigeants_trouves" in _stats:
+                                    bits.append("dirigeants {}".format(_stats["dirigeants_trouves"]))
+                                if "email_dirigeant_advanced" in _stats:
+                                    bits.append("emails dir advanced {}".format(_stats["email_dirigeant_advanced"]))
+                                if "with_strategic" in _stats:
+                                    bits.append("stratégiques {}".format(_stats["with_strategic"]))
+                                if "with_any_email" in _stats:
+                                    bits.append("**total avec email {}**".format(_stats["with_any_email"]))
+                                if bits:
+                                    st.caption(" · ".join(bits))
+                    elif status == "failed":
+                        st.error("Échec : " + (j.get("error") or "raison inconnue")[:300])
+                    elif status == "cancelled":
+                        st.caption("Annulé : " + (j.get("finished_at") or ""))
+
+                with col_act:
+                    if status == "done" and j.get("search_id"):
+                        if st.button("Voir", key="view_{}".format(j["id"])):
+                            st.session_state["last_job_id"] = j["id"]
+                            st.session_state["loaded_search_id"] = None  # force reload
+                            st.success("Résultats chargés. Va sur l'onglet Recherche.")
+                    if status == "pending":
+                        if st.button("Annuler", key="cancel_{}".format(j["id"])):
+                            cancel_job(j["id"])
+                            st.rerun()
+                    if status in ("done", "failed", "cancelled"):
+                        if st.button("Suppr.", key="del_{}".format(j["id"])):
+                            delete_job(j["id"])
+                            st.rerun()
+            st.markdown("---")
 
 
 # ===================== ONGLET HISTORIQUE =====================

@@ -262,9 +262,13 @@ def enrich_emails(entreprises, progress_callback=None):
     site_idx = 0
     for idx, entreprise in enumerate(entreprises):
         site = entreprise.get("site_web", "")
-        if not site:
+        # Initialiser à "" UNIQUEMENT si la clé n'existe pas. Ne JAMAIS écraser
+        # un email pré-existant (par exemple stocké dans un run précédent).
+        if "emails" not in entreprise:
             entreprise["emails"] = ""
+        if "contenu_site" not in entreprise:
             entreprise["contenu_site"] = ""
+        if not site:
             continue
 
         site_idx += 1
@@ -280,7 +284,8 @@ def enrich_emails(entreprises, progress_callback=None):
         # 1. Page d'accueil — combine emails + extraction texte pour prompt IA
         home_emails, home_text = fetch_home_content(site, session)
         all_emails.update(home_emails)
-        entreprise["contenu_site"] = home_text
+        if home_text:
+            entreprise["contenu_site"] = home_text
 
         # 2. Pages contact (tier 1) — arrêt dès qu'une sous-page donne des emails
         found_on_subpage = False
@@ -310,7 +315,10 @@ def enrich_emails(entreprises, progress_callback=None):
                     all_emails.update(page_emails)
                     break
 
-        entreprise["emails"] = pick_best_email(all_emails)
+        # Ne pas écraser un email pré-existant si on n'en trouve pas de nouveau
+        new_email = pick_best_email(all_emails)
+        if new_email:
+            entreprise["emails"] = new_email
 
         # Nettoyage mémoire périodique pour éviter le freeze sur gros volumes
         if site_idx % GC_BATCH_SIZE == 0:

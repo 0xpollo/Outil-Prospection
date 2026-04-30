@@ -1,7 +1,14 @@
-"""Gestion de la base de données SQLite pour l'historique des recherches."""
+"""Gestion de la base de données SQLite pour l'historique des recherches.
+
+Contient aussi la queue de jobs : un job est une recherche en cours d'exécution
+par un worker séparé (cf. worker.py). L'UI Streamlit crée des jobs et lit leur
+status pour afficher la progression — sans rien exécuter elle-même côté serveur.
+"""
 
 import sqlite3
 import json
+import os
+import socket
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "prospection.db"
@@ -28,6 +35,27 @@ def init_db():
             date_recherche TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             parametres TEXT
         );
+
+        -- Queue de jobs exécutés par worker.py.
+        -- status : 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            activite TEXT NOT NULL,
+            zone TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            progress REAL NOT NULL DEFAULT 0.0,
+            message TEXT NOT NULL DEFAULT '',
+            results_count INTEGER NOT NULL DEFAULT 0,
+            search_id INTEGER REFERENCES searches(id) ON DELETE SET NULL,
+            error TEXT NOT NULL DEFAULT '',
+            worker_id TEXT NOT NULL DEFAULT '',
+            stats_json TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            started_at TEXT,
+            finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
 
         CREATE TABLE IF NOT EXISTS entreprises (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +98,11 @@ def init_db():
                 "email_status", "email_confidence", "contenu_site"):
         if col not in existing_cols:
             conn.execute("ALTER TABLE entreprises ADD COLUMN {} TEXT DEFAULT ''".format(col))
+
+    # Migration : ajouter stats_json au cas où la table jobs existait déjà
+    existing_jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    if existing_jobs_cols and "stats_json" not in existing_jobs_cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN stats_json TEXT NOT NULL DEFAULT ''")
 
     conn.commit()
     conn.close()
@@ -229,6 +262,150 @@ def delete_all_history():
         DELETE FROM searches;
         DELETE FROM entreprises;
     """)
+    conn.commit()
+    conn.close()
+
+
+# ============================================================================
+# Queue de jobs (utilisée par l'UI pour créer, par worker.py pour exécuter)
+# ============================================================================
+
+def _worker_id():
+    """Identifiant unique du worker (host + pid)."""
+    return socket.gethostname() + "/" + str(os.getpid())
+
+
+def create_job(activite: str, zone: str, params: dict) -> int:
+    """Crée un job pending dans la queue. Retourne son id."""
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO jobs (activite, zone, params_json) VALUES (?, ?, ?)",
+        (activite, zone, json.dumps(params, ensure_ascii=False)),
+    )
+    job_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return job_id
+
+
+def get_job(job_id: int):
+    """Retourne un job (dict) ou None."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_jobs(limit: int = 50, status_in: list = None) -> list:
+    """Liste les jobs, plus récents en premier. Filtre optionnel par status."""
+    conn = get_connection()
+    if status_in:
+        placeholders = ",".join("?" * len(status_in))
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE status IN (" + placeholders + ") "
+            "ORDER BY id DESC LIMIT ?",
+            list(status_in) + [limit],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def claim_next_job() -> dict:
+    """Le worker appelle ça en boucle : récupère le 1er job pending et le passe
+    en 'running' atomiquement. Retourne le job claimé ou None s'il n'y en a pas.
+    """
+    conn = get_connection()
+    try:
+        # Transaction immediate pour éviter les double-claim
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            conn.execute("ROLLBACK")
+            return None
+        conn.execute(
+            "UPDATE jobs SET status = 'running', "
+            "started_at = datetime('now', 'localtime'), "
+            "worker_id = ? WHERE id = ?",
+            (_worker_id(), row["id"]),
+        )
+        conn.commit()
+        return dict(row)
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def update_job_progress(job_id: int, progress: float, message: str = ""):
+    """Met à jour la progression (0.0–1.0) et le message d'un job running."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE jobs SET progress = ?, message = ? WHERE id = ?",
+        (max(0.0, min(1.0, float(progress))), message[:500], job_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def finish_job(job_id: int, status: str, search_id: int = None,
+               results_count: int = 0, error: str = "", stats: dict = None):
+    """Marque un job comme terminé (done / failed / cancelled)."""
+    conn = get_connection()
+    stats_json = json.dumps(stats, ensure_ascii=False) if stats else ""
+    conn.execute(
+        "UPDATE jobs SET status = ?, finished_at = datetime('now', 'localtime'), "
+        "search_id = ?, results_count = ?, error = ?, stats_json = ? WHERE id = ?",
+        (status, search_id, results_count, error[:1000], stats_json, job_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def cancel_job(job_id: int) -> bool:
+    """Annule un job pending (pas running). Retourne True si fait."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE jobs SET status = 'cancelled', "
+        "finished_at = datetime('now', 'localtime') "
+        "WHERE id = ? AND status = 'pending'",
+        (job_id,),
+    )
+    conn.commit()
+    changed = cur.rowcount
+    conn.close()
+    return changed > 0
+
+
+def delete_job(job_id: int):
+    """Supprime un job de la queue (uniquement si pas running)."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM jobs WHERE id = ? AND status != 'running'", (job_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def reap_stale_jobs(stale_minutes: int = 60):
+    """Marque comme 'failed' les jobs running depuis trop longtemps (worker crashé).
+    À appeler au démarrage du worker pour nettoyer un crash précédent.
+    """
+    conn = get_connection()
+    conn.execute(
+        "UPDATE jobs SET status = 'failed', "
+        "finished_at = datetime('now', 'localtime'), "
+        "error = 'worker stale (timeout)' "
+        "WHERE status = 'running' "
+        "AND (julianday('now', 'localtime') - julianday(started_at)) * 24 * 60 > ?",
+        (stale_minutes,),
+    )
     conn.commit()
     conn.close()
 

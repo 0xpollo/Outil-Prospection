@@ -1,4 +1,5 @@
 streamlit
+streamlit-autorefresh
 selenium
 webdriver-manager
 beautifulsoup4

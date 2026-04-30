@@ -716,9 +716,10 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
                 # SMTP ne tranche pas (OVH/IONOS) → probable selon la spec
                 scraped_conf = "probable"
             elif check in ("invalid", "no_mx"):
-                # Drop l'email scrapé si invalide
-                entreprise["emails"] = ""
-                scraped_email = ""
+                # NE PAS supprimer l'email — l'utilisateur veut voir ce qu'on a
+                # trouvé même si SMTP dit invalide. Marquer comme "incertain"
+                # pour que l'UI puisse afficher un badge orange.
+                scraped_conf = "incertain"
             # check == "error" : laisser sans confidence (l'email reste)
         else:
             # Email générique trouvé sur le site : on garde mais en "probable"
