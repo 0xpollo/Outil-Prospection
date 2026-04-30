@@ -31,6 +31,11 @@ from email_finder import enrich_nominative_emails, validate_scraped_emails
 from entreprise_enricher import enrich_entreprises
 from advanced_enrichment import enrich_advanced
 from scoring import calculate_scores
+from validators import (
+    is_annuaire_domain,
+    is_parent_group_site,
+    validate_site_matches_company,
+)
 import database
 
 logger = logging.getLogger(__name__)
@@ -51,6 +56,56 @@ def _stage_callback(global_callback, stage_start, stage_end):
     return cb
 
 
+def _validate_initial_sites(entreprises, progress_callback=None):
+    """Étape 1.5 : invalide les sites GMaps qui ne pointent pas vers
+    l'entreprise réelle (annuaires, groupes parents, sites non-cohérents).
+
+    Évite que enrich_emails (Phase 1) perde du temps à scraper ces sites.
+    Garde l'URL d'origine dans `site_web_original` pour traçabilité, et
+    pose `site_web_rejected_reason` ∈ {"annuaire", "groupe_parent", "non_match"}.
+    Le site_web validé reste, les autres sont vidés (Phase 2 Perplexity les
+    re-cherchera proprement).
+    """
+    total = len(entreprises)
+    for idx, e in enumerate(entreprises):
+        if progress_callback and idx % 10 == 0:
+            progress_callback("Validation site %d/%d" % (idx + 1, total),
+                              (idx + 1) / max(total, 1))
+        site = (e.get("site_web") or "").strip()
+        if not site:
+            continue
+        nom = (e.get("nom") or "").strip()
+        if not nom:
+            continue
+
+        # 1. Annuaire connu (pagesjaunes, lesgarages, e-pro, etc.)
+        if is_annuaire_domain(site):
+            e["site_web_original"] = site
+            e["site_web"] = ""
+            e["site_web_rejected_reason"] = "annuaire"
+            continue
+
+        # 2. Site groupe parent (renault.fr pour BERTHIAND AUTOMOBILES)
+        if is_parent_group_site(site, nom):
+            e["site_web_original"] = site
+            e["site_web"] = ""
+            e["site_web_rejected_reason"] = "groupe_parent"
+            continue
+
+        # 3. Validation lexicale + scraping page (le plus coûteux : 1 fetch HTTP
+        # de 8ko avec timeout 4s par site). On garde le site si on ne peut pas
+        # statuer (pas de connexion → on ne pénalise pas).
+        try:
+            ok = validate_site_matches_company(site, nom, timeout=4)
+        except Exception:
+            ok = True  # en cas de timeout/erreur réseau, on garde
+        if not ok:
+            e["site_web_original"] = site
+            e["site_web"] = ""
+            e["site_web_rejected_reason"] = "non_match"
+    return entreprises
+
+
 def _count_with_email(results):
     """Combien d'entreprises ont au moins un email (scrapé, dirigeant ou stratégique)."""
     n = 0
@@ -66,26 +121,57 @@ def _count_with_email(results):
     return n
 
 
+def _has_quality_email(e):
+    """True si l'entreprise a un email de qualité prospection (vérifié/probable)
+    en source dirigeant, direction ou stratégique. Sert à décider si Perplexity
+    doit intervenir en Phase 2.
+    """
+    # Email scrapé statut SMTP
+    if e.get("email_status") == "valid":
+        return True
+    # Email dirigeant déjà trouvé
+    if (e.get("email_dirigeant") or "").strip():
+        conf = e.get("email_dirigeant_confiance") or e.get("email_dirigeant_confidence") or ""
+        if conf in ("vérifié", "probable", "high", "medium"):
+            return True
+    return False
+
+
 def run_search(params: dict, progress_callback=None) -> dict:
-    """Exécute le pipeline complet pour une recherche.
+    """Exécute le pipeline complet pour une recherche, en 2 phases.
 
-    params (dict) : voir app.py / worker.py — toutes les clés sont optionnelles
-    sauf activite/zone. Voir aussi le commentaire de tête du fichier sur le
-    principe "ENRICHIT, ne supprime jamais".
+    PHASE 1 — gratuit, sur TOUTES les entreprises :
+      1. Scraping Google Maps                   (35 %)
+      2. Validation des sites GMaps             ( 5 %)
+         (rejette annuaires, groupes parents, sites non-cohérents)
+      3. API gouv → dirigeant                   (10 %)
+      4. Scraping HTML des sites validés        (15 %)
+         (trouve contact@, /equipe, /mentions-legales)
+      5. Validation SMTP des emails scrapés     ( 5 %)
+      6. Patterns email dirigeant + SMTP        ( 5 %)
+         (utile pour ceux qui ont dirigeant + site mais pas d'email scrapé)
 
-    Retourne : {"search_id": int, "results": list, "count": int, "stats": dict}
-    où stats contient un compte par étape (utile pour debug et UI).
+    PHASE 2 — Perplexity, sur les manquantes uniquement, jusqu'à advanced_max :
+      7. enrich_advanced                        (20 %)
+         (Perplexity company → vrai site quand site_web absent ;
+          Perplexity dirigeant → email perso ; emails stratégiques)
+
+      → Économise des tokens car ne tourne que là où la Phase 1 a échoué.
+
+      8. save_search                            ( 5 %)
     """
     activite = params.get("activite", "")
     zone = params.get("zone", "")
     stats = {}
     log_prefix = "Pipeline [{} / {}]".format(activite, zone)
+    use_advanced = params.get("enrich_advanced", False)
 
-    # --- Étape 1 : scraping (45 %) ---
-    scrape_cb = _stage_callback(progress_callback, 0.0, 0.45)
-    if scrape_cb:
-        scrape_cb("Démarrage du scraping...", 0.0)
+    # ====================== PHASE 1 — gratuit ======================
 
+    # --- 1. Scraping (35 %) ---
+    cb = _stage_callback(progress_callback, 0.0, 0.35)
+    if cb:
+        cb("Scraping Google Maps...", 0.0)
     results = scrape_google_maps(
         activite=activite,
         zone=zone,
@@ -99,11 +185,10 @@ def run_search(params: dict, progress_callback=None) -> dict:
         geo_lat=params.get("geo_lat"),
         geo_lng=params.get("geo_lng"),
         mode=params.get("mode", "simple"),
-        progress_callback=scrape_cb,
+        progress_callback=cb,
     )
-
     stats["scraping"] = len(results)
-    logger.info("%s scraping → %d entreprise(s)", log_prefix, len(results))
+    logger.info("%s scraping → %d entreprises", log_prefix, len(results))
 
     if not results:
         if progress_callback:
@@ -113,110 +198,121 @@ def run_search(params: dict, progress_callback=None) -> dict:
 
     n_initial = len(results)
 
-    # --- Étape 2 : enrich_emails (scraping sites) (15 %) ---
+    # --- 2. Validation des sites GMaps (5 %) ---
+    cb = _stage_callback(progress_callback, 0.35, 0.40)
+    if cb:
+        cb("Validation des sites web...", 0.0)
+    results = _validate_initial_sites(results, progress_callback=cb)
+    assert len(results) == n_initial
+    stats["sites_rejetes"] = sum(1 for e in results if e.get("site_web_rejected_reason"))
+    stats["sites_valides"] = sum(1 for e in results if (e.get("site_web") or "").strip())
+    logger.info(
+        "%s validation sites → %d valides, %d rejetés (annuaire/groupe/non-match)",
+        log_prefix, stats["sites_valides"], stats["sites_rejetes"],
+    )
+
+    # --- 3. API gouv → dirigeant (10 %) ---
+    if params.get("search_dirigeants", True):
+        cb = _stage_callback(progress_callback, 0.40, 0.50)
+        results = enrich_entreprises(results, progress_callback=cb)
+        assert len(results) == n_initial
+        stats["dirigeants_trouves"] = sum(
+            1 for e in results if (e.get("dirigeant_prenom") or e.get("dirigeant_nom"))
+        )
+        logger.info("%s API gouv → %d dirigeants", log_prefix, stats["dirigeants_trouves"])
+
+    # --- 4. Scraping HTML des sites VALIDÉS (15 %) ---
     if params.get("search_emails", True):
-        cb = _stage_callback(progress_callback, 0.45, 0.60)
+        cb = _stage_callback(progress_callback, 0.50, 0.65)
         results = enrich_emails(results, progress_callback=cb)
-        # Vérification : on ne doit PAS perdre d'entreprises
-        assert len(results) == n_initial, "enrich_emails a modifié le nombre d'entreprises !"
+        assert len(results) == n_initial
         stats["with_email_after_scraping"] = sum(
             1 for e in results if (e.get("emails") or "").strip()
         )
         logger.info(
-            "%s enrich_emails → %d/%d avec email", log_prefix,
-            stats["with_email_after_scraping"], n_initial,
+            "%s scraping HTML → %d emails", log_prefix, stats["with_email_after_scraping"],
         )
 
-    # --- Étape 3 : validate_scraped_emails (5 %) ---
+    # --- 5. Validation SMTP des emails scrapés (5 %) ---
     if params.get("validate_emails", True) and params.get("search_emails", True):
-        cb = _stage_callback(progress_callback, 0.60, 0.65)
+        cb = _stage_callback(progress_callback, 0.65, 0.70)
         results = validate_scraped_emails(results, progress_callback=cb)
-        assert len(results) == n_initial, "validate_scraped_emails a modifié le nombre d'entreprises !"
-        stats["valid_emails"] = sum(
-            1 for e in results if e.get("email_status") == "valid"
-        )
-        stats["catchall_emails"] = sum(
-            1 for e in results if e.get("email_status") == "catchall"
-        )
+        assert len(results) == n_initial
+        stats["valid_emails"] = sum(1 for e in results if e.get("email_status") == "valid")
+        stats["catchall_emails"] = sum(1 for e in results if e.get("email_status") == "catchall")
         logger.info(
-            "%s validate → %d valid, %d catchall sur %d", log_prefix,
-            stats["valid_emails"], stats["catchall_emails"], n_initial,
+            "%s SMTP scraped → %d valid, %d catchall",
+            log_prefix, stats["valid_emails"], stats["catchall_emails"],
         )
 
-    # NB : email_requis n'est PAS appliqué ici. C'est un filtre d'affichage, pas
-    # un filtre de pipeline. Cf. principe en tête de fichier.
-
-    # --- Étape 4 : enrich_entreprises (API gouv) (10 %) ---
-    if params.get("search_dirigeants", True):
-        cb = _stage_callback(progress_callback, 0.65, 0.75)
-        results = enrich_entreprises(results, progress_callback=cb)
-        assert len(results) == n_initial, "enrich_entreprises a modifié le nombre d'entreprises !"
-        stats["dirigeants_trouves"] = sum(
-            1 for e in results if (e.get("dirigeant_prenom") or e.get("dirigeant_nom"))
-        )
-        logger.info(
-            "%s enrich_entreprises → %d/%d dirigeants", log_prefix,
-            stats["dirigeants_trouves"], n_initial,
-        )
-
-    # --- Étape 5 : enrich_nominative_emails (5 %) ---
-    # Désactivé si advanced est activé (advanced couvre la même chose en mieux)
-    if (params.get("enrich_nominative", True)
-            and params.get("search_dirigeants", True)
-            and not params.get("enrich_advanced", False)):
-        cb = _stage_callback(progress_callback, 0.75, 0.80)
+    # --- 6. Patterns email dirigeant + SMTP (5 %) ---
+    # Toujours actif : c'est gratuit (le service VPS) et ça complète le scraping.
+    # On ne le fait pas si advanced est activé : enrich_advanced fait pareil en mieux.
+    if (params.get("search_dirigeants", True)
+            and params.get("enrich_nominative", True)
+            and not use_advanced):
+        cb = _stage_callback(progress_callback, 0.70, 0.75)
         results = enrich_nominative_emails(results, progress_callback=cb)
-        assert len(results) == n_initial, "enrich_nominative a modifié le nombre d'entreprises !"
-        stats["email_dirigeant_nominative"] = sum(
+        assert len(results) == n_initial
+        stats["email_dir_phase1"] = sum(
             1 for e in results if (e.get("email_dirigeant") or "").strip()
         )
+        logger.info("%s patterns dirigeant → %d emails", log_prefix, stats["email_dir_phase1"])
+
+    # ====================== PHASE 2 — Perplexity (sélectif) ======================
+    if use_advanced:
+        # Sélectionner les entreprises sans email de qualité, triées par score
+        # (les plus prometteuses d'abord), cap à advanced_max
+        candidates = [e for e in results if not _has_quality_email(e)]
+        candidates.sort(key=lambda e: e.get("score", 0), reverse=True)
+        cap = params.get("advanced_max")
+        if cap is not None and cap > 0:
+            candidates = candidates[: int(cap)]
+        stats["perplexity_targets"] = len(candidates)
         logger.info(
-            "%s enrich_nominative → %d/%d emails dirigeants", log_prefix,
-            stats["email_dirigeant_nominative"], n_initial,
+            "%s Phase 2 Perplexity : %d entreprises ciblées (sur %d sans email qualité)",
+            log_prefix, len(candidates), sum(1 for e in results if not _has_quality_email(e)),
         )
 
-    # --- Étape 6 : enrich_advanced (Perplexity + emails stratégiques) (15 %) ---
-    if params.get("enrich_advanced", False):
-        cb = _stage_callback(progress_callback, 0.80, 0.95)
-        results = enrich_advanced(
-            results,
-            progress_callback=cb,
-            do_perplexity=params.get("do_perplexity", True),
-            do_strategic=params.get("do_strategic", True),
-            max_entreprises=params.get("advanced_max"),
-        )
-        assert len(results) == n_initial, "enrich_advanced a modifié le nombre d'entreprises !"
-        stats["email_dirigeant_advanced"] = sum(
-            1 for e in results if (e.get("email_dirigeant") or "").strip()
-        )
-        stats["with_strategic"] = sum(
-            1 for e in results if e.get("emails_strategiques")
-        )
-        logger.info(
-            "%s enrich_advanced → %d emails dirigeants, %d avec stratégique sur %d",
-            log_prefix,
-            stats["email_dirigeant_advanced"],
-            stats["with_strategic"], n_initial,
-        )
+        if candidates:
+            cb = _stage_callback(progress_callback, 0.75, 0.95)
+            # enrich_advanced modifie en place les dicts → on lui passe la sous-liste
+            # mais les changements sont reflétés dans `results` (mêmes références).
+            enrich_advanced(
+                candidates,
+                progress_callback=cb,
+                do_perplexity=params.get("do_perplexity", True),
+                do_strategic=params.get("do_strategic", True),
+                max_entreprises=None,  # on a déjà cappé en amont
+            )
+            assert len(results) == n_initial, "enrich_advanced a modifié results !"
+            stats["email_dir_phase2"] = sum(
+                1 for e in candidates if (e.get("email_dirigeant") or "").strip()
+            )
+            stats["with_strategic_phase2"] = sum(
+                1 for e in candidates if e.get("emails_strategiques")
+            )
+            logger.info(
+                "%s Phase 2 → %d emails dirigeants, %d avec stratégique",
+                log_prefix, stats["email_dir_phase2"], stats["with_strategic_phase2"],
+            )
 
     # Scoring (n'altère que le champ score)
     results = calculate_scores(results)
 
-    # --- Étape 7 : save_search (5 %) ---
+    # --- 8. save_search ---
     if progress_callback:
         progress_callback("Sauvegarde...", 0.97)
     search_id = database.save_search(activite, zone, params, results)
-
     stats["final"] = len(results)
     stats["with_any_email"] = _count_with_email(results)
     logger.info(
-        "%s TERMINÉ : %d entreprises sauvegardées (%d avec email)",
+        "%s TERMINÉ : %d entreprises sauvegardées, %d avec email",
         log_prefix, stats["final"], stats["with_any_email"],
     )
-
     if progress_callback:
         progress_callback(
-            "Terminé : {} entreprise(s) sauvegardée(s), {} avec email".format(
+            "Terminé : {} entreprise(s), {} avec email".format(
                 stats["final"], stats["with_any_email"],
             ),
             1.0,

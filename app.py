@@ -396,13 +396,16 @@ def _make_score_badge(score):
     )
 
 
-# Hiérarchie de sources pour la prospection (plus bas = mieux)
+# Hiérarchie de sources pour la prospection (plus bas = mieux).
+# RH passe avant "site" (= contact@ scrapé) : un rh@/recrutement@ touche un
+# interlocuteur ciblé, alors qu'un contact@ scrapé tombe souvent dans une
+# boîte partagée triée par tout le monde.
 _SOURCE_TIER = {
     "dirigeant": 1,
     "direction": 2,
     "metier": 2,
-    "site": 3,
-    "rh": 4,
+    "rh": 3,
+    "site": 4,
     "contact": 5,
 }
 
