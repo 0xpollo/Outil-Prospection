@@ -300,6 +300,20 @@ def run_search(params: dict, progress_callback=None) -> dict:
     # Scoring (n'altère que le champ score)
     results = calculate_scores(results)
 
+    # --- Filtre final "uniquement avec email" ---
+    # Appliqué APRÈS tout l'enrichissement. Toutes les entreprises ont eu leur
+    # chance (Phase 1 gratuite + Phase 2 Perplexity). Si le user a coché la
+    # case, on ne sauvegarde que celles avec un email final.
+    n_before_filter = len(results)
+    stats["before_email_filter"] = n_before_filter
+    if params.get("email_requis", False):
+        results = [r for r in results if _count_with_email([r]) > 0]
+        stats["dropped_no_email"] = n_before_filter - len(results)
+        logger.info(
+            "%s filtre email_requis : %d entreprises sans email droppées (sur %d)",
+            log_prefix, stats["dropped_no_email"], n_before_filter,
+        )
+
     # --- 8. save_search ---
     if progress_callback:
         progress_callback("Sauvegarde...", 0.97)

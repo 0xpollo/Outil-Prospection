@@ -768,11 +768,12 @@ with tab_recherche:
     # --- Paramètres avancés ---
     with st.expander("Filtres et options"):
         st.caption(
-            "Ces filtres s'appliquent au scraping initial (ils excluent les "
-            "r\u00e9sultats Google Maps qui n'ont pas l'info). Ils ne suppriment "
-            "rien apr\u00e8s enrichissement."
+            "T\u00e9l\u00e9phone/site = filtres GMaps appliqu\u00e9s au scraping initial. "
+            "Email = filtre final appliqu\u00e9 APR\u00c8S l'enrichissement complet : "
+            "toutes les entreprises passent par le pipeline, et seules celles "
+            "avec un email final sont gard\u00e9es en sauvegarde."
         )
-        col_f3, col_f4, col_f5 = st.columns(3)
+        col_f3, col_f4, col_f5, col_f6 = st.columns(4)
         with col_f3:
             telephone_requis = st.checkbox("Uniquement avec t\u00e9l\u00e9phone")
         with col_f4:
@@ -780,9 +781,14 @@ with tab_recherche:
                                               help="Ne garder que les num\u00e9ros de t\u00e9l\u00e9phone portable (06 ou 07)")
         with col_f5:
             site_web_requis = st.checkbox("Uniquement avec site web")
-        # email_requis retir\u00e9 : c'est un filtre d'affichage, pas de pipeline.
-        # L'utilisateur peut filtrer la table de r\u00e9sultats lui-m\u00eame.
-        email_requis = False
+        with col_f6:
+            email_requis = st.checkbox(
+                "Uniquement avec email",
+                value=False,
+                help="Filtre final, apr\u00e8s enrichissement. Toutes les entreprises "
+                     "passent le pipeline ; seules celles avec un email "
+                     "(scrap\u00e9, dirigeant ou strat\u00e9gique) sont sauvegard\u00e9es.",
+            )
 
         if enable_advanced:
             advanced_max = st.slider(
