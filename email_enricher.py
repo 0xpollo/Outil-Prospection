@@ -13,6 +13,9 @@ REQUEST_TIMEOUT = 8
 # Taille max de réponse à lire (1 Mo — au-delà c'est du contenu inutile)
 MAX_RESPONSE_SIZE = 1_000_000
 
+# Taille max du contenu textuel extrait (pour prompt IA de personnalisation)
+CONTENT_MAX_LENGTH = 3000
+
 # Nombre d'entreprises entre chaque nettoyage mémoire
 GC_BATCH_SIZE = 200
 
@@ -31,6 +34,17 @@ IGNORED_PREFIXES = {
     "image", "img", "photo", "icon", "logo",
     "noreply", "no-reply", "mailer-daemon",
     "postmaster", "webmaster", "root",
+}
+
+# Emails "exemple" utilisés comme placeholders sur les sites (templates, demos)
+PLACEHOLDER_EMAILS = {
+    "nom@domain.com", "votre@email.com", "utilisateur@domaine.com",
+    "email@domain.com", "email@email.com", "email@example.com",
+    "exemple@exemple.com", "example@example.com", "test@test.com",
+    "name@example.com", "you@example.com", "your@email.com",
+    "contact@example.com", "info@example.com", "hello@example.com",
+    "john@doe.com", "jane@doe.com", "john.doe@email.com",
+    "adresse@mail.com", "votre.nom@exemple.com",
 }
 
 # Préfixes d'emails prioritaires (dirigeant / contact principal), par ordre de priorité
@@ -75,6 +89,10 @@ def _create_session():
 def is_valid_email(email: str) -> bool:
     """Vérifie qu'un email n'est pas un faux positif."""
     email = email.lower().strip()
+
+    # Placeholders/exemples utilisés sur les templates de sites
+    if email in PLACEHOLDER_EMAILS:
+        return False
 
     # Vérifier le domaine
     domain = email.split("@")[1] if "@" in email else ""
@@ -123,6 +141,47 @@ def extract_emails_from_url(url, session=None):
 
     except Exception:
         return []
+
+
+def fetch_home_content(url, session=None):
+    """Fetch la home page et retourne (emails, texte_propre).
+
+    Le texte est nettoyé (HTML/scripts/nav retirés, espaces compactés)
+    et tronqué à CONTENT_MAX_LENGTH chars pour servir de contexte à un
+    prompt IA de personnalisation d'email.
+    """
+    try:
+        http = session or requests
+        resp = http.get(url, timeout=REQUEST_TIMEOUT, headers=_HEADERS,
+                        allow_redirects=True, stream=True)
+        resp.raise_for_status()
+
+        content = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
+        resp.close()
+        text = content.decode("utf-8", errors="ignore")
+
+        emails = set(EMAIL_REGEX.findall(text))
+        soup = BeautifulSoup(text, "html.parser")
+
+        for a_tag in soup.find_all("a", href=True):
+            href = a_tag["href"]
+            if href.startswith("mailto:"):
+                email = href.replace("mailto:", "").split("?")[0].strip()
+                if email:
+                    emails.add(email)
+
+        # Retirer les blocs non informatifs
+        for tag in soup(["script", "style", "noscript", "nav", "footer", "header", "svg"]):
+            tag.decompose()
+
+        clean_text = soup.get_text(separator=" ", strip=True)
+        clean_text = re.sub(r"\s+", " ", clean_text)[:CONTENT_MAX_LENGTH].strip()
+
+        del soup, text, content
+        return [e for e in emails if is_valid_email(e)], clean_text
+
+    except Exception:
+        return [], ""
 
 
 def pick_best_email(emails: set) -> str:
@@ -205,6 +264,7 @@ def enrich_emails(entreprises, progress_callback=None):
         site = entreprise.get("site_web", "")
         if not site:
             entreprise["emails"] = ""
+            entreprise["contenu_site"] = ""
             continue
 
         site_idx += 1
@@ -217,8 +277,10 @@ def enrich_emails(entreprises, progress_callback=None):
 
         all_emails = set()
 
-        # 1. Page d'accueil (toujours scannée)
-        all_emails.update(extract_emails_from_url(site, session))
+        # 1. Page d'accueil — combine emails + extraction texte pour prompt IA
+        home_emails, home_text = fetch_home_content(site, session)
+        all_emails.update(home_emails)
+        entreprise["contenu_site"] = home_text
 
         # 2. Pages contact (tier 1) — arrêt dès qu'une sous-page donne des emails
         found_on_subpage = False

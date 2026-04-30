@@ -3,3 +3,4 @@ prospection.db-shm
 prospection.db-wal
 __pycache__/
 *.pyc
+config.py

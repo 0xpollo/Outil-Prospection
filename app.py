@@ -12,6 +12,8 @@ from urllib.parse import quote_plus
 
 from scraper import scrape_google_maps
 from email_enricher import enrich_emails
+from entreprise_enricher import enrich_entreprises
+from email_finder import enrich_nominative_emails, validate_scraped_emails
 from scoring import calculate_scores, score_color, score_label
 from database import save_search, get_searches, get_search_results, delete_search, delete_all_history, update_entreprises
 
@@ -384,6 +386,47 @@ def _make_score_badge(score):
     )
 
 
+def _format_email_dirigeant(email, confidence):
+    """Formate un email dirigeant avec un badge de confiance coloré."""
+    if not email:
+        return ""
+    colors = {"high": "#10b981", "medium": "#f59e0b", "low": "#94a3b8"}
+    labels = {"high": "v\u00e9rifi\u00e9", "medium": "probable", "low": "incertain"}
+    conf = confidence or "low"
+    color = colors.get(conf, "#94a3b8")
+    label = labels.get(conf, "incertain")
+    mailto = f'<a href="mailto:{email}" style="color:#0EA5E9;text-decoration:none;">{email}</a>'
+    badge = (
+        f'<span style="background:{color};color:#fff;padding:1px 6px;'
+        f'border-radius:8px;font-size:0.7rem;margin-left:6px;">{label}</span>'
+    )
+    return mailto + badge
+
+
+def _format_email_scraped(email, status):
+    """Formate un email scrapé avec un badge selon la validation SMTP."""
+    if not email:
+        return ""
+    colors = {
+        "valid": "#10b981", "catchall": "#f59e0b", "public": "#94a3b8",
+        "unknown": "#94a3b8", "invalid": "#ef4444", "no_mx": "#ef4444",
+    }
+    labels = {
+        "valid": "valide", "catchall": "catchall", "public": "perso",
+        "unknown": "?", "invalid": "invalide", "no_mx": "no mx",
+    }
+    mailto = f'<a href="mailto:{email}" style="color:#0EA5E9;text-decoration:none;">{email}</a>'
+    if not status:
+        return mailto
+    color = colors.get(status, "#94a3b8")
+    label = labels.get(status, status)
+    badge = (
+        f'<span style="background:{color};color:#fff;padding:1px 6px;'
+        f'border-radius:8px;font-size:0.7rem;margin-left:6px;">{label}</span>'
+    )
+    return mailto + badge
+
+
 def _export_excel(df_export):
     """Génère un fichier Excel avec la feuille Prospects + 3 feuilles de suivi."""
     buffer = BytesIO()
@@ -400,6 +443,31 @@ def render_results_table(results, show_deja_connue=False):
     """Construit et affiche le tableau HTML des résultats."""
     df = pd.DataFrame(results)
 
+    # Construire la colonne "Dirigeant" si les données sont présentes
+    if "dirigeant_prenom" in df.columns or "dirigeant_nom" in df.columns:
+        prenoms = df.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df.columns else ""
+        noms = df.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df.columns else ""
+        df["Dirigeant"] = [
+            ("{} {}".format(p, n)).strip().title() if (p or n) else ""
+            for p, n in zip(prenoms, noms)
+        ]
+
+    # Construire la colonne "Email dirigeant" avec badge de confiance
+    if "email_dirigeant" in df.columns:
+        confs = df.get("email_dirigeant_confidence", "").fillna("") if "email_dirigeant_confidence" in df.columns else [""] * len(df)
+        df["Email dirigeant"] = [
+            _format_email_dirigeant(email, conf)
+            for email, conf in zip(df["email_dirigeant"].fillna(""), confs)
+        ]
+
+    # Colonne "Email" (scrapé) avec badge de validation SMTP
+    if "emails" in df.columns and "email_status" in df.columns:
+        statuses = df["email_status"].fillna("")
+        df["emails"] = [
+            _format_email_scraped(email, status)
+            for email, status in zip(df["emails"].fillna(""), statuses)
+        ]
+
     column_map = {
         "nom": "Nom",
         "adresse": "Adresse",
@@ -412,7 +480,7 @@ def render_results_table(results, show_deja_connue=False):
     }
     df = df.rename(columns=column_map)
 
-    display_cols = ["Nom", "Adresse", "T\u00e9l\u00e9phone", "Email", "Site Web", "Note", "Nb avis", "Score"]
+    display_cols = ["Nom", "Dirigeant", "Email dirigeant", "Adresse", "T\u00e9l\u00e9phone", "Email", "Site Web", "Note", "Nb avis", "Score"]
     display_cols = [c for c in display_cols if c in df.columns]
     df = df[display_cols]
 
@@ -491,7 +559,7 @@ with tab_recherche:
         "approfondie": "Recherche approfondie (~15s, ~500 r\u00e9sultats)",
         "france": "France enti\u00e8re (~3-5 min, milliers de r\u00e9sultats)",
     }
-    col_mode, col_emails = st.columns(2)
+    col_mode, col_emails, col_dir = st.columns([2, 1, 1])
     with col_mode:
         mode_recherche = st.selectbox(
             "Mode de recherche",
@@ -500,6 +568,13 @@ with tab_recherche:
         )
     with col_emails:
         search_emails = st.checkbox("Rechercher les emails (plus lent)", value=(mode_recherche == "simple"))
+    with col_dir:
+        search_dirigeants = st.checkbox(
+            "Rechercher les dirigeants",
+            value=False,
+            help="Enrichit chaque prospect avec le nom du dirigeant via l'API data.gouv.fr (INSEE + INPI). "
+                 "Ajoute ~0.2s par prospect.",
+        )
 
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -674,8 +749,22 @@ with tab_recherche:
                     progress_bar.progress(0.0)
                     results = enrich_emails(results, progress_callback=update_progress)
 
+                    status_text.text("Validation SMTP des emails...")
+                    progress_bar.progress(0.0)
+                    results = validate_scraped_emails(results, progress_callback=update_progress)
+
                 if email_requis:
                     results = [r for r in results if r.get("emails")]
+
+                if search_dirigeants:
+                    status_text.text("Recherche des dirigeants...")
+                    progress_bar.progress(0.0)
+                    results = enrich_entreprises(results, progress_callback=update_progress)
+
+                    # Génération + validation d'emails nominatifs du dirigeant
+                    status_text.text("Recherche emails dirigeants...")
+                    progress_bar.progress(0.0)
+                    results = enrich_nominative_emails(results, progress_callback=update_progress)
 
                 # Scoring
                 results = calculate_scores(results)
@@ -735,6 +824,13 @@ with tab_recherche:
 
         with col_airtable:
             df_at = pd.DataFrame(results)
+
+            # Construire la colonne Dirigeant avant le rename
+            if "dirigeant_prenom" in df_at.columns or "dirigeant_nom" in df_at.columns:
+                p_col = df_at.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df_at.columns else [""] * len(df_at)
+                n_col = df_at.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df_at.columns else [""] * len(df_at)
+                df_at["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
+
             airtable_map = {
                 "nom": "Name",
                 "adresse": "Address",
@@ -744,6 +840,13 @@ with tab_recherche:
                 "note": "Google Rating",
                 "nb_avis": "Review Count",
                 "score": "Score",
+                "siren": "SIREN",
+                "email_dirigeant": "Email Dirigeant",
+                "email_dirigeant_confidence": "Email Dirigeant Confidence",
+                "email_status": "Email Status",
+                "email_confidence": "Email Confidence",
+                "dirigeant_qualite": "Qualite Dirigeant",
+                "contenu_site": "Contenu Site",
             }
             df_at = df_at.rename(columns=airtable_map)
 
@@ -756,8 +859,12 @@ with tab_recherche:
             df_at["Date Found"] = datetime.now().strftime("%Y-%m-%d")
 
             airtable_cols = [
-                "Name", "Address", "Phone", "Email", "Website",
+                "Name", "Dirigeant", "Qualite Dirigeant", "Email Dirigeant",
+                "Email Dirigeant Confidence", "SIREN",
+                "Address", "Phone", "Email", "Email Status", "Email Confidence",
+                "Website",
                 "Google Rating", "Review Count", "Score", "Score Label",
+                "Contenu Site",
                 "Search Query", "Date Found",
             ]
             airtable_cols = [c for c in airtable_cols if c in df_at.columns]
@@ -817,6 +924,7 @@ with tab_historique:
                         progress_bar.progress(min(progress, 1.0))
 
                     hist_data = enrich_emails(hist_data, progress_callback=_update_progress)
+                    hist_data = validate_scraped_emails(hist_data, progress_callback=_update_progress)
                     hist_data = calculate_scores(hist_data)
                     update_entreprises(hist_data)
                     progress_bar.progress(1.0)
@@ -848,6 +956,12 @@ with tab_historique:
 
                     with col_exp_airtable:
                         df_at_h = pd.DataFrame(hist_results)
+
+                        if "dirigeant_prenom" in df_at_h.columns or "dirigeant_nom" in df_at_h.columns:
+                            p_col = df_at_h.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df_at_h.columns else [""] * len(df_at_h)
+                            n_col = df_at_h.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df_at_h.columns else [""] * len(df_at_h)
+                            df_at_h["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
+
                         at_map = {
                             "nom": "Name",
                             "adresse": "Address",
@@ -857,6 +971,13 @@ with tab_historique:
                             "note": "Google Rating",
                             "nb_avis": "Review Count",
                             "score": "Score",
+                            "siren": "SIREN",
+                            "email_dirigeant": "Email Dirigeant",
+                            "email_dirigeant_confidence": "Email Dirigeant Confidence",
+                            "email_status": "Email Status",
+                            "email_confidence": "Email Confidence",
+                            "dirigeant_qualite": "Qualite Dirigeant",
+                            "contenu_site": "Contenu Site",
                         }
                         df_at_h = df_at_h.rename(columns=at_map)
                         df_at_h["Score Label"] = df_at_h["Score"].apply(
@@ -866,8 +987,12 @@ with tab_historique:
                         df_at_h["Date Found"] = s["date_recherche"][:10]
 
                         at_cols = [
-                            "Name", "Address", "Phone", "Email", "Website",
+                            "Name", "Dirigeant", "Qualite Dirigeant", "Email Dirigeant",
+                            "Email Dirigeant Confidence", "SIREN",
+                            "Address", "Phone", "Email", "Email Status", "Email Confidence",
+                            "Website",
                             "Google Rating", "Review Count", "Score", "Score Label",
+                            "Contenu Site",
                             "Search Query", "Date Found",
                         ]
                         at_cols = [c for c in at_cols if c in df_at_h.columns]
