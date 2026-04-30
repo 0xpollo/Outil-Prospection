@@ -223,11 +223,13 @@ def _http_fetch_businesses(session, query, lat, lng, max_results=200,
 
 
 def _multi_search(session, query, points, progress_callback,
-                  progress_start=0.10, progress_end=0.80, label_prefix=""):
+                  progress_start=0.10, progress_end=0.80, label_prefix="",
+                  early_stop_threshold=12):
     """Effectue plusieurs recherches HTTP et accumule les résultats uniques.
 
-    Parcourt TOUS les points de recherche avant de retourner.
-    S'arrête uniquement si 8 recherches consécutives n'apportent rien de nouveau.
+    Parcourt TOUS les points de recherche, sauf si `early_stop_threshold`
+    requêtes consécutives sans NOUVEAU résultat → on arrête.
+    Mettre `early_stop_threshold=999` pour visiter tous les points sans break.
 
     Args:
         points: liste de (lat, lng, zoom_meters, label)
@@ -267,10 +269,8 @@ def _multi_search(session, query, points, progress_callback,
         else:
             consecutive_empty = 0
 
-        # Arrêter si 12 recherches consécutives sans nouveau résultat.
-        # 12 = compromis entre éviter le hammering inutile et laisser une
-        # vraie chance aux points éloignés (banlieue) après une zone dense.
-        if consecutive_empty >= 12:
+        # Arrêter si N recherches consécutives sans nouveau résultat.
+        if consecutive_empty >= early_stop_threshold:
             break
 
         # Pause entre les requêtes
@@ -348,7 +348,12 @@ def _scrape_via_http(query, lat, lng, max_results=20, mode="simple",
              "Recherche {}/{}".format(idx + 1, len(offsets)))
             for idx, (dlat, dlng, zm) in enumerate(offsets)
         ]
-        results = _multi_search(session, query, points, progress_callback)
+        # Mode ultra : pas d'early stop — visite tous les ~80 points pour
+        # maximiser la couverture, même si la dédup fait stagner le compteur.
+        results = _multi_search(
+            session, query, points, progress_callback,
+            early_stop_threshold=999,
+        )
         if progress_callback:
             progress_callback(
                 "{} entreprises trouvées".format(len(results)), 0.85
