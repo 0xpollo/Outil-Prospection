@@ -224,7 +224,7 @@ def _http_fetch_businesses(session, query, lat, lng, max_results=200,
 
 def _multi_search(session, query, points, progress_callback,
                   progress_start=0.10, progress_end=0.80, label_prefix="",
-                  early_stop_threshold=12):
+                  early_stop_threshold=12, sleep_between=0.3):
     """Effectue plusieurs recherches HTTP et accumule les résultats uniques.
 
     Parcourt TOUS les points de recherche, sauf si `early_stop_threshold`
@@ -273,9 +273,9 @@ def _multi_search(session, query, points, progress_callback,
         if consecutive_empty >= early_stop_threshold:
             break
 
-        # Pause entre les requêtes
+        # Pause entre les requêtes (paramétrable selon le mode)
         if i > 0:
-            time.sleep(0.3)
+            time.sleep(sleep_between)
 
     return all_results
 
@@ -348,11 +348,12 @@ def _scrape_via_http(query, lat, lng, max_results=20, mode="simple",
              "Recherche {}/{}".format(idx + 1, len(offsets)))
             for idx, (dlat, dlng, zm) in enumerate(offsets)
         ]
-        # Mode ultra : pas d'early stop — visite tous les ~80 points pour
-        # maximiser la couverture, même si la dédup fait stagner le compteur.
+        # Mode ultra : pas d'early stop, sleep plus long entre requêtes
+        # pour éviter le rate-limit Google sur l'IP du VPS (qui sinon
+        # baisse les résultats retournés).
         results = _multi_search(
             session, query, points, progress_callback,
-            early_stop_threshold=999,
+            early_stop_threshold=999, sleep_between=1.5,
         )
         if progress_callback:
             progress_callback(
