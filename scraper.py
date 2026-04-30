@@ -429,12 +429,32 @@ def _create_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    # Forcer le français — sans ça, depuis un VPS en Allemagne (Contabo)
+    # Google sert sa page de consent en allemand et le bouton "Tout accepter"
+    # n'est plus trouvé.
+    options.add_argument("--lang=fr-FR")
+    options.add_experimental_option("prefs", {"intl.accept_languages": "fr-FR,fr"})
     options.add_argument(
         "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service, options=options)
+    # Poser les cookies de consent Google AVANT de naviguer (esquive la
+    # page d'acceptation cookies). Pour ça il faut être déjà sur le domaine.
+    try:
+        driver.get("https://www.google.com/")
+        driver.add_cookie({
+            "name": "SOCS", "value": "CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJmciADGgYIgJnPpwY",
+            "domain": ".google.com",
+        })
+        driver.add_cookie({
+            "name": "CONSENT", "value": "YES+FR.fr+V14+BX",
+            "domain": ".google.com",
+        })
+    except Exception:
+        pass
+    return driver
 
 
 def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
@@ -467,15 +487,23 @@ def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
             driver.get(url)
             time.sleep(3 + attempt * 2)
 
-            try:
-                accept_btn = driver.find_element(
-                    By.XPATH,
-                    "//button[contains(., 'Tout accepter') or contains(., 'Accept all')]",
-                )
-                accept_btn.click()
-                time.sleep(2)
-            except Exception:
-                pass
+            # Bouton "Tout accepter" — variantes FR/EN/DE/ES/IT au cas où
+            # les cookies de consent posés en amont n'auraient pas suffi.
+            for accept_xpath in (
+                "//button[contains(., 'Tout accepter')]",
+                "//button[contains(., 'Accept all')]",
+                "//button[contains(., 'Alle akzeptieren')]",  # DE
+                "//button[contains(., 'Aceptar todo')]",       # ES
+                "//button[contains(., 'Accetta tutto')]",      # IT
+                "//button[@aria-label='Accept all' or @aria-label='Tout accepter' or @aria-label='Alle akzeptieren']",
+            ):
+                try:
+                    btn = driver.find_element(By.XPATH, accept_xpath)
+                    btn.click()
+                    time.sleep(2)
+                    break
+                except Exception:
+                    continue
 
             google_error = _detect_google_error(driver)
             if google_error:
