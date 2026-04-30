@@ -894,8 +894,8 @@ def scrape_google_maps(
     if site_web_requis:
         results = [r for r in results if r.get("site_web")]
 
-    # Filtrer par zone (sauf mode France)
-    if mode != "france":
+    # Filtrer par zone (sauf mode France et ultra : on veut la métropole entière)
+    if mode not in ("france", "ultra"):
         results = _filter_by_zone(results, zone, code_postal)
 
     # Troncature au max_results uniquement en mode simple
