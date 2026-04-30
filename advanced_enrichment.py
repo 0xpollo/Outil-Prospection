@@ -132,11 +132,10 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
                         return email_found, "vérifié"
                     if check == "catchall":
                         return email_found, "probable"
-                    if check in ("invalid", "no_mx"):
-                        # Perplexity s'est trompé, on continue avec patterns
-                        pass
-                    else:
-                        return email_found, "incertain"
+                    if check == "unknown":
+                        # OVH/IONOS : on garde l'email Perplexity en probable
+                        return email_found, "probable"
+                    # invalid / no_mx : Perplexity s'est trompé → patterns
                 else:
                     return email_found, "probable"
             if not site_web and pplx.get("site_web"):
@@ -172,14 +171,19 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
         len(candidates), prenom_usuel, nom_variants[0], domain, domain_status,
     )
 
-    # Domaine catchall : 1 candidat suffit
+    # Domaine catchall : tout RCPT répondra accept → 1 candidat suffit (probable)
     if domain_status == "catchall":
         return candidates[0], "probable"
 
-    # SMTP service dispo : tester chaque candidat
-    if smtp_verifier.is_available():
-        limit = 6 if domain_status == "ok" else 5
-        for email in candidates[:limit]:
+    # Domaine "unknown" (SMTP ne répond pas aux RCPT — typiquement OVH/IONOS) :
+    # selon la spec, sans Debounce en fallback on classe le candidat principal
+    # en "probable". On ne teste pas chaque candidat (réponse identique = unknown).
+    if domain_status == "unknown" and smtp_verifier.is_available():
+        return candidates[0], "probable"
+
+    # Domaine "ok" : tester chaque candidat (SMTP donne des réponses fiables)
+    if smtp_verifier.is_available() and domain_status == "ok":
+        for email in candidates[:6]:
             check = smtp_verifier.verify_email(email)
             if check == "valid":
                 return email, "vérifié"
@@ -188,16 +192,11 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
             if check == "error":
                 break
             time.sleep(0.2)
+        # Tous candidats invalidés sur un service fiable → on abandonne
+        return None, None
 
-        # Tous candidats invalidés sur un service fiable
-        if domain_status == "ok":
-            return None, None
-
-    # MX OK mais pas de validation possible → pattern probable en "incertain"
-    if domain_status in ("ok", "unknown"):
-        return candidates[0], "incertain"
-
-    return None, None
+    # Pas de SMTP du tout (mais MX OK via DNS) → "incertain" : best guess non validé
+    return candidates[0], "incertain"
 
 
 def find_strategic_emails(domain):
@@ -215,6 +214,12 @@ def find_strategic_emails(domain):
     if domain_status == "catchall":
         email = "direction@" + domain
         logger.info("Domaine catchall (%s) → %s en stratégique probable", domain, email)
+        return [(email, "direction", "probable")]
+    if domain_status == "unknown":
+        # SMTP ne répond pas aux RCPT (OVH/IONOS notamment). Selon la spec,
+        # sans Debounce en fallback on classe direction@ en probable.
+        email = "direction@" + domain
+        logger.info("Domaine unknown (%s) → %s en stratégique probable", domain, email)
         return [(email, "direction", "probable")]
 
     validated = []
@@ -410,7 +415,7 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
                 check = "error"
             if check == "valid":
                 email_dir_conf = "vérifié"
-            elif check == "catchall":
+            elif check in ("catchall", "unknown"):
                 email_dir_conf = "probable"
             elif check in ("invalid", "no_mx"):
                 email_dir = ""
@@ -451,13 +456,18 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
                 scraped_conf = "vérifié"
             elif check == "catchall":
                 scraped_conf = "probable"
+            elif check == "unknown":
+                # SMTP ne tranche pas (OVH/IONOS) → probable selon la spec
+                scraped_conf = "probable"
             elif check in ("invalid", "no_mx"):
                 # Drop l'email scrapé si invalide
                 entreprise["emails"] = ""
                 scraped_email = ""
+            # check == "error" : laisser sans confidence (l'email reste)
         else:
-            # Email générique : ne pas valider, marquer "incertain"
-            scraped_conf = "incertain"
+            # Email générique trouvé sur le site : on garde mais en "probable"
+            # (peu de signal de prospection mais il existe sur le site officiel)
+            scraped_conf = "probable"
     entreprise["emails_confiance"] = scraped_conf
 
     entreprise["enrichment_log"] = " | ".join(log_parts) if log_parts else ""

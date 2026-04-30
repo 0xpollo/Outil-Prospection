@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 config.py
 .env
+run_test_full.log
+run_test_results.json
