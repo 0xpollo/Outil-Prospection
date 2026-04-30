@@ -38,6 +38,12 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 _RUNNING = True
 
 
+class JobCancelledError(Exception):
+    """Levée par le progress_callback quand l'utilisateur a annulé le job
+    via l'UI (status passe à 'cancelled' dans la DB)."""
+    pass
+
+
 def _handle_signal(signum, frame):
     global _RUNNING
     logger.info("Signal %s reçu, arrêt en fin de job courant...", signum)
@@ -55,8 +61,18 @@ _PROGRESS_MIN_INTERVAL = 1.0  # secondes
 _PROGRESS_MIN_DELTA = 0.01    # 1 % minimum
 
 
+_LAST_CANCEL_CHECK_TS = [0.0]
+_CANCEL_CHECK_INTERVAL = 2.0  # secondes
+
+
 def _make_progress_cb(job_id):
-    """Renvoie un callback (msg, ratio) qui écrit dans la DB avec throttling."""
+    """Renvoie un callback (msg, ratio) qui écrit dans la DB avec throttling.
+
+    À chaque appel non throttlé, vérifie aussi en DB si le job a été annulé
+    par l'utilisateur (status='cancelled'). Si oui, raise JobCancelledError
+    pour arrêter le pipeline de manière coopérative (l'arrêt prend effet à
+    la prochaine étape de progression — quelques secondes max).
+    """
     def cb(msg, ratio):
         now = time.time()
         if (
@@ -67,6 +83,21 @@ def _make_progress_cb(job_id):
             return
         _LAST_PROGRESS_TS[0] = now
         _LAST_PROGRESS_RATIO[0] = ratio
+
+        # Check cancellation (max toutes les 2s pour ne pas marteler la DB)
+        if now - _LAST_CANCEL_CHECK_TS[0] >= _CANCEL_CHECK_INTERVAL:
+            _LAST_CANCEL_CHECK_TS[0] = now
+            try:
+                j = database.get_job(job_id)
+                if j and j.get("status") == "cancelled":
+                    raise JobCancelledError(
+                        "Job #{} annulé par l'utilisateur".format(job_id)
+                    )
+            except JobCancelledError:
+                raise
+            except Exception as e:
+                logger.debug("cancel-check %s : %s", job_id, e)
+
         try:
             database.update_job_progress(job_id, ratio, msg)
         except Exception as e:
@@ -94,6 +125,10 @@ def _execute_job(job):
 
     try:
         result = run_search(params, progress_callback=cb)
+    except JobCancelledError:
+        logger.warning("Job #%d annulé par l'utilisateur (arrêt propre)", job_id)
+        # Le statut "cancelled" est déjà posé en DB par l'UI, ne pas écraser.
+        return
     except KeyboardInterrupt:
         logger.warning("Job #%d interrompu (KeyboardInterrupt)", job_id)
         database.finish_job(job_id, "failed", error="interrompu")

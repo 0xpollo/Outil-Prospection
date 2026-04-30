@@ -369,12 +369,18 @@ def finish_job(job_id: int, status: str, search_id: int = None,
 
 
 def cancel_job(job_id: int) -> bool:
-    """Annule un job pending (pas running). Retourne True si fait."""
+    """Annule un job pending OU running. Retourne True si fait.
+
+    Pour un job running, le worker sera redémarré par systemd et ne reprendra
+    pas un job marqué cancelled. Pour un arrêt immédiat il faut aussi tuer le
+    process worker (cf. UI : restart systemd outil-prospection-worker).
+    """
     conn = get_connection()
     cur = conn.execute(
         "UPDATE jobs SET status = 'cancelled', "
-        "finished_at = datetime('now', 'localtime') "
-        "WHERE id = ? AND status = 'pending'",
+        "finished_at = datetime('now', 'localtime'), "
+        "error = 'arrêté par l''utilisateur' "
+        "WHERE id = ? AND status IN ('pending', 'running')",
         (job_id,),
     )
     conn.commit()

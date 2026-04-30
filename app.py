@@ -518,60 +518,68 @@ def _format_email_scraped(email, status):
 
 
 def _build_export_df(results):
-    """Construit un DataFrame pour les exports (Excel/Airtable) avec UNE
-    seule colonne Email = meilleur de prospection + Email Confidence + Email Source.
+    """DataFrame pour l'export Excel au format sortie.xlsx.
 
-    Les anciennes colonnes (email_dirigeant, emails_strategiques, etc.) ne sont
-    PAS exportées — elles polluent les outils de mailing aval.
+    Colonnes (exactement comme sortie.xlsx) :
+    Nom | Adresse | Téléphone | Email | Source | (vide) | Site Web |
+    Statut | Date d'envoi | Nom nettoyé | Ville
+    (la colonne Date ISO est ajoutée comme formule par _export_excel)
     """
     df = pd.DataFrame(results)
-
-    # Best email par ligne
     best = [pick_best_email(ent) for ent in results]
     df["Email"] = [b[0] for b in best]
-    df["Email Confidence"] = [b[1] for b in best]
-    df["Email Source"] = [b[2] for b in best]
-
-    # Dirigeant (concaténation prénom + nom)
-    if "dirigeant_prenom" in df.columns or "dirigeant_nom" in df.columns:
-        p_col = df.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df.columns else [""] * len(df)
-        n_col = df.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df.columns else [""] * len(df)
-        df["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
+    src_labels = {
+        "dirigeant": "Dirigeant", "direction": "Direction",
+        "metier": "Métier", "rh": "RH", "site": "Site web",
+        "contact": "Contact",
+    }
+    df["Source"] = [src_labels.get(b[2], "") for b in best]
 
     rename = {
         "nom": "Nom",
         "adresse": "Adresse",
         "telephone": "Téléphone",
         "site_web": "Site Web",
-        "note": "Note",
-        "nb_avis": "Nb avis",
-        "score": "Score",
-        "siren": "SIREN",
-        "dirigeant_qualite": "Qualité Dirigeant",
-        "contenu_site": "Contenu Site",
     }
     df = df.rename(columns=rename)
 
-    cols = [
-        "Nom", "Dirigeant", "Qualité Dirigeant", "SIREN",
-        "Email", "Email Confidence", "Email Source",
-        "Adresse", "Téléphone", "Site Web",
-        "Note", "Nb avis", "Score",
-    ]
+    df["Statut"] = ""
+    df["Date d'envoi"] = ""
+    df["Nom nettoyé"] = ""
+    df["Ville"] = ""
+    df["__sep"] = ""  # colonne séparatrice vide entre Source et Site Web
+
+    cols = ["Nom", "Adresse", "Téléphone", "Email", "Source", "__sep",
+            "Site Web", "Statut", "Date d'envoi", "Nom nettoyé", "Ville"]
     cols = [c for c in cols if c in df.columns]
     df = df[cols]
+    df.columns = [c if c != "__sep" else "" for c in df.columns]
     return df
 
 
 def _export_excel(df_export):
-    """Génère un fichier Excel avec la feuille Prospects + 3 feuilles de suivi."""
+    """Excel au format sortie.xlsx :
+    Sheet1 (prospects) + Date ISO en formule + Envoi/Relance1/Relance2 vides.
+    """
     buffer = BytesIO()
     df_suivi = pd.DataFrame(columns=["Destinataire", "Date et Heure", "Objet", "Corp"])
+    df_with_iso = df_export.copy()
+    df_with_iso["Date ISO"] = ""
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Prospects")
+        df_with_iso.to_excel(writer, index=False, sheet_name="Sheet1")
         df_suivi.to_excel(writer, index=False, sheet_name="Envoi")
-        df_suivi.to_excel(writer, index=False, sheet_name="Relance 1")
-        df_suivi.to_excel(writer, index=False, sheet_name="Relance 2")
+        df_suivi.to_excel(writer, index=False, sheet_name="Relance1")
+        df_suivi.to_excel(writer, index=False, sheet_name="Relance2")
+        # Injecter formule Date ISO (col L = 12)
+        ws = writer.sheets["Sheet1"]
+        for row_num in range(2, ws.max_row + 1):
+            ws.cell(row=row_num, column=12).value = (
+                '=IF(I' + str(row_num) + '="","",'
+                'TEXT(DATE(VALUE(MID(I' + str(row_num) + ',7,4)),'
+                'VALUE(MID(I' + str(row_num) + ',4,2)),'
+                'VALUE(LEFT(I' + str(row_num) + ',2))),"YYYY-MM-DD")'
+                '&" "&MID(I' + str(row_num) + ',14,5))'
+            )
     return buffer.getvalue()
 
 
@@ -679,7 +687,8 @@ with tab_recherche:
     # --- Mode de recherche (en premier pour conditionner le reste) ---
     mode_labels = {
         "simple": "Recherche simple (~2s)",
-        "approfondie": "Recherche approfondie (~15s, ~500 r\u00e9sultats)",
+        "approfondie": "Recherche approfondie (~30s, ~500 r\u00e9sultats)",
+        "ultra": "Ultra (Selenium scroll, ~5-10 min, jusqu'\u00e0 2000 r\u00e9sultats)",
         "france": "France enti\u00e8re (~3-5 min, milliers de r\u00e9sultats)",
     }
     col_mode, col_advanced = st.columns([2, 2])
@@ -1022,48 +1031,14 @@ with tab_recherche:
         df = render_results_table(results, show_deja_connue=True)
 
         # Export
-        col_excel, col_airtable = st.columns(2)
-
-        df_raw = _build_export_df(results)
-
-        with col_excel:
-            df_excel = df_raw.copy()
-            df_excel["Statut"] = ""
-            df_excel["Date d'envoi"] = ""
-            df_excel["Nom nettoyé"] = ""
-            df_excel["Ville"] = ""
-            st.download_button(
-                label="Télécharger Excel",
-                data=_export_excel(df_excel),
-                file_name="prospection.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-        with col_airtable:
-            df_at = df_raw.copy()
-            if "Score" in df_at.columns:
-                df_at["Score Label"] = df_at["Score"].apply(
-                    lambda s: score_label(int(s)) if pd.notna(s) and s != "" else ""
-                )
-            search_activite = st.session_state.get("search_activite", "")
-            search_zone = st.session_state.get("search_zone", "")
-            df_at["Search Query"] = "{} à {}".format(search_activite, search_zone)
-            df_at["Date Found"] = datetime.now().strftime("%Y-%m-%d")
-            df_at["Statut"] = ""
-            df_at["Date d'envoi"] = ""
-            df_at["Nom nettoyé"] = ""
-            df_at["Ville"] = ""
-            for col in df_at.select_dtypes(include="object").columns:
-                df_at[col] = df_at[col].fillna("").astype(str).str.strip()
-            csv_airtable = "\ufeff" + df_at.to_csv(index=False)
-            st.download_button(
-                label="Export Airtable (CSV)",
-                data=csv_airtable.encode("utf-8"),
-                file_name="prospection_airtable.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
+        df_export = _build_export_df(results)
+        st.download_button(
+            label="Télécharger Excel",
+            data=_export_excel(df_export),
+            file_name="prospection.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
 
 
 # ===================== ONGLET JOBS =====================
@@ -1163,9 +1138,13 @@ with tab_jobs:
                             st.session_state["last_job_id"] = j["id"]
                             st.session_state["loaded_search_id"] = None  # force reload
                             st.success("Résultats chargés. Va sur l'onglet Recherche.")
-                    if status == "pending":
-                        if st.button("Annuler", key="cancel_{}".format(j["id"])):
+                    if status in ("pending", "running"):
+                        btn_label = "Annuler" if status == "pending" else "Arrêter"
+                        if st.button(btn_label, key="cancel_{}".format(j["id"])):
                             cancel_job(j["id"])
+                            st.success(
+                                "Job #{} arrêté. Prend effet en quelques secondes.".format(j["id"])
+                            )
                             st.rerun()
                     if status in ("done", "failed", "cancelled"):
                         if st.button("Suppr.", key="del_{}".format(j["id"])):
@@ -1223,48 +1202,15 @@ with tab_historique:
                     hist_df = render_results_table(hist_results)
 
                     # Boutons d'export
-                    col_exp_excel, col_exp_airtable = st.columns(2)
-
-                    df_raw = _build_export_df(hist_results)
-
-                    with col_exp_excel:
-                        df_excel = df_raw.copy()
-                        df_excel["Statut"] = ""
-                        df_excel["Date d'envoi"] = ""
-                        df_excel["Nom nettoyé"] = ""
-                        df_excel["Ville"] = ""
-                        st.download_button(
-                            label="Télécharger Excel",
-                            data=_export_excel(df_excel),
-                            file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True,
-                            key="excel_%s" % s['id'],
-                        )
-
-                    with col_exp_airtable:
-                        df_at = df_raw.copy()
-                        if "Score" in df_at.columns:
-                            df_at["Score Label"] = df_at["Score"].apply(
-                                lambda sc: score_label(int(sc)) if pd.notna(sc) and sc != "" else ""
-                            )
-                        df_at["Search Query"] = "%s à %s" % (s['activite'], s['zone'])
-                        df_at["Date Found"] = s["date_recherche"][:10]
-                        df_at["Statut"] = ""
-                        df_at["Date d'envoi"] = ""
-                        df_at["Nom nettoyé"] = ""
-                        df_at["Ville"] = ""
-                        for col in df_at.select_dtypes(include="object").columns:
-                            df_at[col] = df_at[col].fillna("").astype(str).str.strip()
-                        csv_at = "\ufeff" + df_at.to_csv(index=False)
-                        st.download_button(
-                            label="Export Airtable (CSV)",
-                            data=csv_at.encode("utf-8"),
-                            file_name="prospection_%s_%s_airtable.csv" % (s['activite'], s['zone']),
-                            mime="text/csv",
-                            use_container_width=True,
-                            key="airtable_%s" % s['id'],
-                        )
+                    df_export = _build_export_df(hist_results)
+                    st.download_button(
+                        label="Télécharger Excel",
+                        data=_export_excel(df_export),
+                        file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="excel_%s" % s['id'],
+                    )
                 else:
                     st.write("Aucun r\u00e9sultat pour cette recherche.")
 

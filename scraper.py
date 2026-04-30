@@ -517,7 +517,10 @@ def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
                     )
                 return results
 
-        max_scrolls = max(5, (max_results // 7) + 3)
+        # Cap de sécurité : 300 scrolls (~5-8 min). Sur GMaps un scroll charge
+        # ~7 résultats donc ça permet ~2000 résultats avant la fin de la liste.
+        # Le scroll s'arrête tôt si plus rien ne charge (cf. dom_count check).
+        max_scrolls = max(5, min(300, (max_results // 7) + 3))
         prev_dom_count = 0
         seen_names = set()
         place_urls = []
@@ -768,8 +771,20 @@ def scrape_google_maps(
 
     results = None
 
+    # --- Mode "ultra" : Selenium scrolling humain (lent mais ramène 1000+) ---
+    # Utilisé pour les très grandes villes où le HTTP plafonne à ~200/requête
+    # même en mode approfondie. Scroll dans la liste GMaps comme un humain
+    # jusqu'à ce que Google n'ajoute plus de résultats.
+    if mode == "ultra":
+        results = _scrape_via_selenium(
+            query, geo_lat, geo_lng,
+            max_results=max(max_results, 99999),  # forcer scroll jusqu'au bout
+            progress_callback=progress_callback,
+            error_callback=error_callback,
+        )
+
     # --- Méthode 1 : HTTP direct (rapide) ---
-    if mode == "france":
+    elif mode == "france":
         results = _scrape_via_http(
             query, 46.6, 2.2, max_results,
             mode="france",
@@ -782,8 +797,8 @@ def scrape_google_maps(
             progress_callback=progress_callback,
         )
 
-    # --- Méthode 2 : Selenium (fallback, sauf mode France) ---
-    if not results and mode != "france":
+    # --- Méthode 2 : Selenium (fallback, sauf mode France et ultra qui le force) ---
+    if not results and mode not in ("france", "ultra"):
         results = _scrape_via_selenium(
             query, geo_lat, geo_lng, max_results,
             progress_callback, error_callback,
