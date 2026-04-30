@@ -32,9 +32,16 @@ _POSTAL_RE = re.compile(r"\b(\d{5})\b")
 
 # Mots à retirer du nom pour faire un match plus permissif
 _STOP_WORDS = {
-    "le", "la", "les", "du", "de", "des", "au", "aux", "et",
+    "le", "la", "les", "du", "de", "des", "au", "aux", "et", "a",
     "sarl", "sas", "sasu", "eurl", "eirl", "sa", "scp", "snc",
     "restaurant", "boulangerie", "pizzeria", "garage", "coiffure",
+    # Mots métier / contexte courants dans les noms GMaps verbeux
+    "expert", "comptable", "comptables", "cabinet", "agence", "atelier",
+    "plombier", "plomberie", "plombiers", "entreprise", "entreprises",
+    "service", "services", "solutions", "conseil", "conseils",
+    "automobile", "automobiles", "auto", "autos",
+    "lyon", "marseille", "paris", "bordeaux", "lille", "toulouse",
+    "nice", "nantes", "rennes", "strasbourg", "montpellier",
 }
 
 
@@ -144,23 +151,37 @@ def _match_score(result, nom_recherche, code_postal):
     return overlap + (0.3 if cp_match else 0), confidence
 
 
+def _distinctive_tokens(nom):
+    """Tokens distinctifs (>=3 chars, hors stop-words métier/ville/forme juridique).
+    Tronqué à 2 tokens (le 1er est le plus distinctif statistiquement).
+    """
+    nom_norm = _normalize_name(nom).lower()
+    tokens = [t for t in nom_norm.split() if len(t) >= 3 and t not in _STOP_WORDS]
+    return tokens[:2]
+
+
 def _search_entreprise(nom, code_postal, session):
     """Cherche une entreprise via l'API data.gouv.fr.
 
-    Stratégie : d'abord avec code_postal, fallback sur département si rien.
-    Retourne (result_dict, confidence) ou (None, 'none').
+    Stratégie en cascade :
+    1. nom complet + code_postal
+    2. nom complet + département
+    3. tokens distinctifs (1er ou 2 premiers mots métier-free) + code_postal
+    4. tokens distinctifs + département
+
+    L'étape 3 récupère les cas où le nom GMaps a du bruit ("EPIPHYSE - Expert-
+    comptable à Bordeaux") et la raison sociale Sirene n'a pas ces mots
+    ("EPIPHYSE CONSEIL"). On cherche juste avec "epiphyse".
     """
     nom_clean = _normalize_name(nom)
     if not nom_clean:
         return None, "none"
 
-    # Tentative 1 : nom + code postal (précis)
+    dept = _extract_department(code_postal) if code_postal else ""
+
+    # 1) nom complet + CP
     if code_postal:
-        params = {
-            "q": nom_clean,
-            "code_postal": code_postal,
-            "per_page": 5,
-        }
+        params = {"q": nom_clean, "code_postal": code_postal, "per_page": 5}
         results = _api_call(params, session)
         if results:
             best = max(results, key=lambda r: _match_score(r, nom, code_postal)[0])
@@ -168,23 +189,47 @@ def _search_entreprise(nom, code_postal, session):
             if conf != "none":
                 return best, conf
 
-    # Tentative 2 : nom + département (plus large)
-    dept = _extract_department(code_postal) if code_postal else ""
+    # 2) nom complet + département
     if dept:
-        params = {
-            "q": nom_clean,
-            "departement": dept,
-            "per_page": 5,
-        }
+        params = {"q": nom_clean, "departement": dept, "per_page": 5}
         results = _api_call(params, session)
         if results:
             best = max(results, key=lambda r: _match_score(r, nom, code_postal)[0])
             score, conf = _match_score(best, nom, code_postal)
             if conf != "none":
-                # Confidence limitée sans match exact du CP
                 if conf == "high":
                     conf = "medium"
                 return best, conf
+
+    # 3) tokens distinctifs + CP/dept (fallback pour noms GMaps verbeux)
+    distinctive = _distinctive_tokens(nom)
+    if distinctive:
+        q = " ".join(distinctive)
+        if q != nom_clean.lower():
+            for filter_param, filter_value in (
+                ("code_postal", code_postal),
+                ("departement", dept),
+            ):
+                if not filter_value:
+                    continue
+                params = {"q": q, filter_param: filter_value, "per_page": 5}
+                results = _api_call(params, session)
+                if not results:
+                    continue
+                # Re-scorer en utilisant le nom complet original
+                best = max(results, key=lambda r: _match_score(r, nom, code_postal)[0])
+                score, conf = _match_score(best, nom, code_postal)
+                # Avec un token unique, on accepte 'low' (overlap >=0.5)
+                if conf != "none":
+                    return best, conf if filter_param == "code_postal" else (
+                        "medium" if conf == "high" else conf
+                    )
+                # Si le 1er résultat est un seul match avec CP exact, on l'accepte
+                # avec confidence "low" (le token distinctif a fait le match)
+                if filter_param == "code_postal" and len(results) == 1:
+                    api_cp = results[0].get("siege", {}).get("code_postal", "")
+                    if api_cp == code_postal:
+                        return results[0], "low"
 
     return None, "none"
 

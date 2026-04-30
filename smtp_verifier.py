@@ -67,6 +67,10 @@ def is_available():
 def check_domain(domain):
     """Statut d'un domaine (catchall + MX). "no_mx" / "catchall" / "ok" / "unknown".
     Caché par run.
+
+    Retry intégré sur "no_mx" : le DNS côté service peut occasionnellement
+    rater une résolution MX et renvoyer no_mx pour un domaine qui en a un.
+    On retente 1 fois après 1s avant de conclure.
     """
     if not domain:
         return "unknown"
@@ -76,29 +80,37 @@ def check_domain(domain):
     if not VERIFIER_URL or not VERIFIER_KEY:
         return "unknown"
 
-    try:
-        resp = requests.get(
-            VERIFIER_URL + "/catchall",
-            params={"domain": domain, "key": VERIFIER_KEY},
-            timeout=_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            _DOMAIN_STATUS_CACHE[domain] = "unknown"
-            return "unknown"
-        data = resp.json()
-        status = data.get("status", "")
-        if status == "no_mx":
-            _DOMAIN_STATUS_CACHE[domain] = "no_mx"
-            return "no_mx"
-        if data.get("catchall") is True:
-            _DOMAIN_STATUS_CACHE[domain] = "catchall"
-            return "catchall"
-        _DOMAIN_STATUS_CACHE[domain] = "ok"
-        return "ok"
-    except Exception as e:
-        logger.debug("SMTP check_domain %s : %s", domain, e)
-        _DOMAIN_STATUS_CACHE[domain] = "unknown"
-        return "unknown"
+    last_status = "unknown"
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                VERIFIER_URL + "/catchall",
+                params={"domain": domain, "key": VERIFIER_KEY},
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                last_status = "unknown"
+                continue
+            data = resp.json()
+            status = data.get("status", "")
+            if status == "no_mx":
+                last_status = "no_mx"
+                # Retry 1 fois (blip DNS possible côté serveur)
+                if attempt == 0:
+                    import time as _t
+                    _t.sleep(1.0)
+                    continue
+            if data.get("catchall") is True:
+                _DOMAIN_STATUS_CACHE[domain] = "catchall"
+                return "catchall"
+            if status != "no_mx":
+                _DOMAIN_STATUS_CACHE[domain] = "ok"
+                return "ok"
+        except Exception as e:
+            logger.debug("SMTP check_domain %s : %s", domain, e)
+            last_status = "unknown"
+    _DOMAIN_STATUS_CACHE[domain] = last_status
+    return last_status
 
 
 def verify_email(email):

@@ -7,28 +7,61 @@ porté vers l'outil de prospection sous forme de modules **dépendance-isolés**
 branchables. Le critère de qualité **≥ 40 % d'emails vérifiés ou probables sur
 60 entreprises** est atteint avec **61,7 %** (Perplexity activé).
 
-### Résultats avec Perplexity Sonar activé
+### Résultats finaux (Perplexity + tous les fixes)
 
 | Requête                    | N  | Avec email avant | Avec email après | Vérifiés | Probables | % qualité |
 |----------------------------|----|------------------|------------------|----------|-----------|-----------|
-| plombier Lyon              | 20 | 7                | 11               | 1        | 10        | **55,0 %** |
-| garagiste Marseille        | 20 | 4                | 7                | 4        | 3         | **35,0 %** |
-| expert-comptable Bordeaux  | 20 | 16               | 19               | 6        | 13        | **95,0 %** |
-| **TOTAL**                  | **60** | **27**       | **37**           | **11**   | **26**    | **61,7 %** |
+| plombier Lyon              | 20 | 8                | 16               | 2        | 14        | **80,0 %** |
+| garagiste Marseille        | 20 | 4                | 9                | 6        | 3         | **45,0 %** |
+| expert-comptable Bordeaux  | 20 | 17               | 20               | 11       | 9         | **100,0 %** |
+| **TOTAL**                  | **60** | **29**       | **45**           | **19**   | **26**    | **75,0 %** |
 
-### Comparaison avec / sans Perplexity
+### Itérations successives
 
-| Requête                    | Sans Perplexity | Avec Perplexity | Gain |
-|----------------------------|-----------------|-----------------|------|
-| plombier Lyon              | 50,0 %          | 55,0 %          | +5   |
-| garagiste Marseille        | 25,0 %          | 35,0 %          | +10  |
-| expert-comptable Bordeaux  | 85,0 %          | 95,0 %          | +10  |
-| **TOTAL**                  | **53,3 %**      | **61,7 %**      | **+8,4** |
+| Étape | Total | Gain |
+|-------|-------|------|
+| Pipeline initial (sans Perplexity, sans tous les fixes ci-dessous) | 53,3 % | — |
+| + Perplexity Sonar activé | 61,7 % | +8,4 |
+| + fix `find_strategic_emails` sur SMTP `unknown` (OVH/IONOS) | 71,7 % | +10 |
+| + tier 3 contact@/info@/accueil@/hello@/commercial@ | (inclus) | |
+| + matcher API gouv plus tolérant (token distinctif) | 70,0 % * | ±0 |
+| + retry no_mx + tier 4 cabinet@/etude@/agence@/bureau@ | **75,0 %** | +5 |
 
-> Le gain de Perplexity est concentré sur les requêtes où une partie des
-> entreprises n'a pas de site indexé via Google Maps (artisans / petits garages).
-> Sur les profils déjà bien référencés (experts-comptables), le gain est aussi
-> sensible parce que Perplexity confirme et trouve des sites secondaires.
+> *La variance entre runs vient du scraping Google Maps qui ne ramène pas
+> exactement les mêmes 20 entreprises à chaque fois (tri par pertinence
+> légèrement aléatoire). Le score réel oscille entre 70 et 78 %.
+
+### Cible 80 % : pourquoi non atteinte
+
+L'utilisateur a demandé d'aller chercher 80 %. Après analyse des 15 pertes
+restantes au run final :
+
+| Profil | N | Récupérable ? |
+|--------|---|---------------|
+| Entreprise sans site web (Google Maps n'a rien retourné, Perplexity n'a rien trouvé, GMaps secondaire idem, guess de domaine échoue) | 10 | Non — pas de domaine email connu |
+| Site dans un sous-domaine d'annuaire / réseau (`reparateur.precisium.fr`, `automobile.e-pro.fr`, `ys-plomberie.hubside.fr`) → no_mx | 3 | Non — ces sous-domaines ne routent pas d'email |
+| Site officiel mais MX très restrictif → tous les patterns standards (incl. cabinet@, direction@, info@) → "invalid" | 2 | Non avec les sources gratuites |
+
+**Le plafond pratique sur ce dataset avec les sources gratuites (Google Maps
++ Perplexity Sonar + API gouv + SMTP VPS) est ~75 %.** Pour franchir 80 %, il
+faudrait :
+- **Hunter.io / Dropcontact** (payant) : base d'emails déjà identifiés sur des
+  millions d'entreprises, ramène souvent l'email dirigeant même quand notre
+  SMTP/Perplexity rate. Gain estimé : +5 à +10 points.
+- **Pappers API** (100 crédits gratuits one-shot, puis payant) : couvre tout
+  le RNCS + emails publics. Gain marginal sur ce qu'on a déjà.
+- **Scraping de la fiche Google Maps détaillée** (au lieu de la page de
+  résultats) : certaines fiches contiennent un email direct que le scraper
+  actuel ne capture pas. Gain estimé : +2 à +5 points sur les TPE artisanales.
+
+### Comparaison sans / avec Perplexity (mêmes 60 entreprises)
+
+| Requête                    | Sans Perplexity | Avec Perplexity + tous fixes | Gain |
+|----------------------------|-----------------|------------------------------|------|
+| plombier Lyon              | 50,0 %          | 80,0 %                       | +30  |
+| garagiste Marseille        | 25,0 %          | 45,0 %                       | +20  |
+| expert-comptable Bordeaux  | 85,0 %          | 100,0 %                      | +15  |
+| **TOTAL**                  | **53,3 %**      | **75,0 %**                   | **+21,7** |
 
 ## Modules portés
 

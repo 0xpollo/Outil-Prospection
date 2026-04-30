@@ -41,7 +41,11 @@ from validators import (
 
 logger = logging.getLogger(__name__)
 
-# Préfixes stratégiques B2B (direction + RH), ordre = priorité
+# Préfixes stratégiques B2B, ordre = priorité de prospection.
+# Tier 1 : direction (décideur)
+# Tier 2 : RH (interlocuteur du besoin)
+# Tier 3 : contact générique — moins prioritaire mais souvent le seul email
+#         existant sur les TPE artisanales
 STRATEGIC_PREFIXES = [
     ("direction", "direction"),
     ("dg", "direction"),
@@ -51,6 +55,17 @@ STRATEGIC_PREFIXES = [
     ("rh", "rh"),
     ("recrutement", "rh"),
     ("drh", "rh"),
+    ("contact", "contact"),
+    ("info", "contact"),
+    ("accueil", "contact"),
+    ("hello", "contact"),
+    ("commercial", "contact"),
+    # Préfixes "métier" (cabinets, études, agences). Souvent le seul email
+    # standard qui existe sur les domaines de pro libéral / TPE B2B.
+    ("cabinet", "metier"),
+    ("etude", "metier"),
+    ("agence", "metier"),
+    ("bureau", "metier"),
 ]
 
 # Timeouts user-spec
@@ -210,6 +225,178 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
     return candidates[0], "incertain"
 
 
+# Mots métiers / activités trop génériques pour servir de slug seul.
+# Empêche "LUXE GARAGE" → garage.com (qui existe mais n'est pas l'entreprise).
+_METIER_STOP = {
+    "garage", "garages", "plombier", "plomberie", "plombiers",
+    "restaurant", "restaurants", "boulangerie", "boulanger",
+    "coiffure", "coiffeur", "menuiserie", "menuisier", "menuiseries",
+    "electricien", "electricite", "electriciens", "carrelage",
+    "peinture", "peintre", "macon", "maconnerie", "couverture",
+    "couvreur", "chauffage", "chauffagiste", "vitrerie",
+    "automobile", "automobiles", "auto", "autos", "transport",
+    "concession", "transports", "logistique", "distribution",
+    "service", "services", "solutions", "expert", "comptable",
+    "comptables", "cabinet", "agence", "atelier",
+}
+
+
+def _guess_domain_candidates(nom_entreprise):
+    """Slugs plausibles à tester comme domaines : avec tirets, sans tirets.
+    On ne renvoie PAS un mot seul (trop souvent un mot métier qui matche un
+    domaine sans rapport — cf. LUXE GARAGE → garage.com).
+
+    Ex: "LUXE GARAGE" → ['luxegarage', 'luxe-garage']
+        "GARAGE MEKKI" → ['garagemekki', 'garage-mekki']
+    """
+    if not nom_entreprise:
+        return []
+    import re as _re
+    import unicodedata as _ud
+    no_accents = _ud.normalize("NFD", nom_entreprise.lower())
+    no_accents = "".join(c for c in no_accents if _ud.category(c) != "Mn")
+    cleaned = _re.sub(r"[^a-z0-9\s]", " ", no_accents).strip()
+    # Retirer formes juridiques + petits mots
+    for stop in ["sarl", "sas", "sasu", "eurl", "sci", "ste", "scop",
+                 "societe", "groupe", "ets", "earl", "sa", "snc",
+                 "et", "de", "du", "des", "la", "le", "les"]:
+        cleaned = _re.sub(r"\b" + stop + r"\b", " ", cleaned)
+    tokens = [t for t in cleaned.split() if t and len(t) >= 2]
+    if not tokens:
+        return []
+
+    # Si tous les tokens sont des mots métiers génériques, on abandonne :
+    # impossible de deviner un domaine d'entreprise spécifique.
+    distinctive = [t for t in tokens if t not in _METIER_STOP]
+    if not distinctive:
+        return []
+
+    candidates = []
+    # Slug joint (luxegarage / garagemekki)
+    joined = "".join(tokens)
+    if 5 <= len(joined) <= 30:
+        candidates.append(joined)
+    # Slug avec tirets (luxe-garage)
+    hyphenated = "-".join(tokens)
+    if hyphenated != joined and 5 <= len(hyphenated) <= 35:
+        candidates.append(hyphenated)
+    # Slug des seuls tokens distinctifs si différent (ex: "GARAGE MEKKI" → "mekki"
+    # est rejeté ci-dessus, mais "GARAGE LUXE PARIS" → distinctifs ['luxe','paris']
+    # → 'luxeparis' / 'luxe-paris' à tester)
+    if len(distinctive) >= 2:
+        d_joined = "".join(distinctive)
+        d_hyph = "-".join(distinctive)
+        if d_joined != joined and 5 <= len(d_joined) <= 30 and d_joined not in candidates:
+            candidates.append(d_joined)
+        if d_hyph != hyphenated and 5 <= len(d_hyph) <= 35 and d_hyph not in candidates:
+            candidates.append(d_hyph)
+    return candidates[:3]  # cap 3 pour limiter le coût SMTP
+
+
+def try_guess_emails_from_name(nom_entreprise, prenom_dirigeant="", nom_dirigeant=""):
+    """Tente de retrouver des emails par devination du domaine.
+
+    Pipeline : nom → slugs candidats → tester SMTP catchall/MX sur chaque .fr/.com
+    → si MX présent, tester direction@ / contact@ + email patterns dirigeant.
+
+    Retourne dict : {site_web, email_dirigeant, email_dirigeant_confiance, strategiques}
+    avec valeurs vides si rien trouvé.
+    """
+    result = {
+        "site_web": "",
+        "email_dirigeant": "",
+        "email_dirigeant_confiance": "",
+        "strategiques": [],
+    }
+    if not smtp_verifier.is_available():
+        return result
+
+    slugs = _guess_domain_candidates(nom_entreprise)
+    if not slugs:
+        return result
+
+    for slug in slugs:
+        for tld in [".fr", ".com"]:
+            domain = slug + tld
+            status = smtp_verifier.check_domain(domain)
+            if status == "no_mx":
+                continue  # pas d'email sur ce domaine
+            if status not in ("ok", "catchall", "unknown"):
+                continue
+
+            # MX présent : on a une cible plausible. Construire le site_web canonique.
+            site_web = "https://www." + domain
+            result["site_web"] = site_web
+
+            # Catchall : direction@ probable, fini
+            if status == "catchall":
+                result["strategiques"] = [
+                    (("direction@" + domain), "direction", "probable"),
+                ]
+                logger.info("Guess domain catchall : %s", domain)
+                return result
+
+            # unknown : direction@ probable selon spec, fini
+            if status == "unknown":
+                result["strategiques"] = [
+                    (("direction@" + domain), "direction", "probable"),
+                    (("contact@" + domain), "contact", "probable"),
+                ]
+                logger.info("Guess domain unknown : %s", domain)
+                # Si on a un dirigeant, ajouter aussi un pattern probable
+                if prenom_dirigeant and nom_dirigeant:
+                    pn_v = extract_nom_variants(nom_dirigeant)
+                    pu = normalize_for_email(prenom_dirigeant.split()[0]) if prenom_dirigeant else ""
+                    if pu and pn_v:
+                        cand = _generate_email_candidates(pu, pn_v, domain)
+                        if cand:
+                            result["email_dirigeant"] = cand[0]
+                            result["email_dirigeant_confiance"] = "probable"
+                return result
+
+            # status == "ok" : tester direction@ + contact@ + patterns dirigeant
+            for prefix in ("direction", "contact"):
+                check = smtp_verifier.verify_email(prefix + "@" + domain)
+                if check == "valid":
+                    typ = "direction" if prefix == "direction" else "contact"
+                    result["strategiques"].append((prefix + "@" + domain, typ, "vérifié"))
+                    break
+                if check == "catchall":
+                    typ = "direction" if prefix == "direction" else "contact"
+                    result["strategiques"].append((prefix + "@" + domain, typ, "probable"))
+                    break
+                time.sleep(0.2)
+
+            # Patterns dirigeant si dispo
+            if prenom_dirigeant and nom_dirigeant and not result["email_dirigeant"]:
+                pn_v = extract_nom_variants(nom_dirigeant)
+                pu = normalize_for_email(prenom_dirigeant.split()[0]) if prenom_dirigeant else ""
+                if pu and pn_v:
+                    candidates = _generate_email_candidates(pu, pn_v, domain)
+                    for email in candidates[:3]:
+                        check = smtp_verifier.verify_email(email)
+                        if check == "valid":
+                            result["email_dirigeant"] = email
+                            result["email_dirigeant_confiance"] = "vérifié"
+                            break
+                        if check == "catchall":
+                            result["email_dirigeant"] = email
+                            result["email_dirigeant_confiance"] = "probable"
+                            break
+                        time.sleep(0.2)
+
+            # Si on a au moins une trouvaille, retourner
+            if result["strategiques"] or result["email_dirigeant"]:
+                logger.info("Guess domain success : %s pour %s", domain, nom_entreprise)
+                return result
+
+            # Sinon, on a juste un MX sans email exploitable → reset et essayer
+            # le prochain slug
+            result["site_web"] = ""
+
+    return result
+
+
 def find_strategic_emails(domain):
     """direction@, rh@, dg@, gerance@... validés via SMTP.
     Retourne liste de tuples (email, type, confiance).
@@ -228,14 +415,18 @@ def find_strategic_emails(domain):
         return [(email, "direction", "probable")]
     if domain_status == "unknown":
         # SMTP ne répond pas aux RCPT (OVH/IONOS notamment). Selon la spec,
-        # sans Debounce en fallback on classe direction@ en probable.
-        email = "direction@" + domain
-        logger.info("Domaine unknown (%s) → %s en stratégique probable", domain, email)
-        return [(email, "direction", "probable")]
+        # sans Debounce en fallback on classe direction@ + contact@ en probable.
+        emails = [
+            ("direction@" + domain, "direction", "probable"),
+            ("contact@" + domain, "contact", "probable"),
+        ]
+        logger.info("Domaine unknown (%s) → 2 stratégiques probables", domain)
+        return emails
 
     validated = []
     seen_types = set()
     consecutive_invalids = 0
+    unknown_count = 0
 
     for prefix, email_type in STRATEGIC_PREFIXES:
         email = prefix + "@" + domain
@@ -251,17 +442,32 @@ def find_strategic_emails(domain):
                 validated.append((email, email_type, "probable"))
                 seen_types.add(email_type)
             break
-        elif check == "invalid":
-            consecutive_invalids += 1
-            if consecutive_invalids >= 3:
-                logger.debug("Stratégique : 3 invalids consécutifs sur %s, arrêt", domain)
+        elif check == "unknown":
+            # MX accepte mais RCPT ambigu (OVH/IONOS) → probable selon la spec.
+            # On collecte le 1er par type pour avoir direction + contact
+            unknown_count += 1
+            if email_type not in seen_types:
+                validated.append((email, email_type, "probable"))
+                seen_types.add(email_type)
+            # 3 unknowns consécutifs : tout sera unknown sur ce domaine, stop
+            if unknown_count >= 3:
                 break
+        elif check == "invalid":
+            # On ne break PAS sur invalids consécutifs : la liste contient
+            # des préfixes "métier" (cabinet@, etude@, agence@) en fin de
+            # liste qui sont parfois les SEULS valides sur des domaines
+            # pro libéraux. Coût max ~17 × 0.2s = 3,4s par domaine.
+            consecutive_invalids += 1
         elif check == "error":
             break
 
         time.sleep(0.2)
 
-        if "direction" in seen_types and "rh" in seen_types:
+        # Couverture optimale : direction + (rh OU contact OU metier)
+        # → on peut s'arrêter pour économiser
+        if "direction" in seen_types and any(
+            t in seen_types for t in ("rh", "contact", "metier")
+        ):
             break
 
     return validated
@@ -377,6 +583,31 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
             site_web = gmaps_site
             log_parts.append("site GMaps: " + site_web)
 
+    # Dernier recours : si pas de site OU site sans MX → tenter de deviner
+    # un domaine candidat et le valider via SMTP service. Cap 3 slugs × 2 TLD.
+    guess_result = None
+    needs_guess = (not site_web)
+    if not needs_guess and site_web:
+        # Vérifier si le site connu est sans MX (pas exploitable pour l'email)
+        try:
+            d = extract_domain(site_web)
+            if d and smtp_verifier.is_available() and smtp_verifier.check_domain(d) == "no_mx":
+                needs_guess = True
+                log_parts.append("site no_mx : tentative guess")
+        except Exception:
+            pass
+    if needs_guess:
+        prenom_dir = (entreprise.get("dirigeant_prenom") or "").strip()
+        nom_dir = (entreprise.get("dirigeant_nom") or "").strip()
+        try:
+            guess_result = try_guess_emails_from_name(nom, prenom_dir, nom_dir)
+        except Exception as e:
+            logger.debug("guess emails erreur: %s", e)
+            guess_result = None
+        if guess_result and (guess_result.get("strategiques") or guess_result.get("email_dirigeant")):
+            site_web = guess_result.get("site_web") or site_web
+            log_parts.append("guess: " + (guess_result.get("site_web") or "?"))
+
     if site_web:
         entreprise["site_web"] = site_web
 
@@ -432,6 +663,12 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
                 email_dir = ""
                 email_dir_conf = ""
 
+    # Injecter les résultats du guess s'il a trouvé du dirigeant
+    if guess_result and guess_result.get("email_dirigeant") and not email_dir:
+        email_dir = guess_result["email_dirigeant"]
+        email_dir_conf = guess_result.get("email_dirigeant_confiance", "")
+        log_parts.append("email dir (guess): " + email_dir)
+
     entreprise["email_dirigeant"] = email_dir
     entreprise["email_dirigeant_confiance"] = email_dir_conf
 
@@ -447,6 +684,14 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
                 strategic = []
             if strategic:
                 log_parts.append(str(len(strategic)) + " email(s) stratégique(s)")
+    # Compléter avec le guess (n'écrase pas les stratégiques déjà trouvés)
+    if guess_result and guess_result.get("strategiques"):
+        existing_emails = {e[0] for e in strategic if len(e) >= 1}
+        for tup in guess_result["strategiques"]:
+            if len(tup) >= 1 and tup[0] not in existing_emails:
+                strategic.append(tup)
+        if guess_result["strategiques"]:
+            log_parts.append("strat (guess): " + str(len(guess_result["strategiques"])))
     entreprise["emails_strategiques"] = strategic
 
     # --- 4. Validation de l'email scrapé existant (si pas de confiance) ---
