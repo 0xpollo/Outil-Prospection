@@ -4,3 +4,4 @@ prospection.db-wal
 __pycache__/
 *.pyc
 config.py
+.env
