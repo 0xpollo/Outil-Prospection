@@ -5,5 +5,6 @@ __pycache__/
 *.pyc
 config.py
 .env
-run_test_full.log
-run_test_results.json
+run_test*.log
+run_test_results*.json
+.claude/scheduled_tasks.lock
