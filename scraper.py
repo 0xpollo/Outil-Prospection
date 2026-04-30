@@ -224,12 +224,18 @@ def _http_fetch_businesses(session, query, lat, lng, max_results=200,
 
 def _multi_search(session, query, points, progress_callback,
                   progress_start=0.10, progress_end=0.80, label_prefix="",
-                  early_stop_threshold=12, sleep_between=0.3):
+                  early_stop_threshold=12, sleep_between=0.3,
+                  refresh_session_every=10):
     """Effectue plusieurs recherches HTTP et accumule les résultats uniques.
 
     Parcourt TOUS les points de recherche, sauf si `early_stop_threshold`
     requêtes consécutives sans NOUVEAU résultat → on arrête.
     Mettre `early_stop_threshold=999` pour visiter tous les points sans break.
+
+    `refresh_session_every` : Google rate-limit progressivement après ~14 req
+    dans la même session HTTP (truncation silencieuse des résultats). On
+    recrée une session fraîche tous les N points pour réinitialiser cet état.
+    Mettre 0 pour désactiver.
 
     Args:
         points: liste de (lat, lng, zoom_meters, label)
@@ -239,8 +245,18 @@ def _multi_search(session, query, points, progress_callback,
     all_results = []
     seen_names = set()
     consecutive_empty = 0
+    current_session = session
 
     for i, (plat, plng, zoom, point_label) in enumerate(points):
+        # Renouveler la session HTTP périodiquement pour éviter le rate-limit
+        # progressif de Google (cookies trackés).
+        if refresh_session_every and i > 0 and i % refresh_session_every == 0:
+            try:
+                current_session.close()
+            except Exception:
+                pass
+            current_session = _create_http_session()
+
         if progress_callback:
             pct = progress_start + (progress_end - progress_start) * (i / len(points))
             progress_callback(
@@ -253,7 +269,7 @@ def _multi_search(session, query, points, progress_callback,
             )
 
         batch = _http_fetch_businesses(
-            session, query, plat, plng,
+            current_session, query, plat, plng,
             max_results=200, zoom_meters=zoom,
         )
 
@@ -348,12 +364,13 @@ def _scrape_via_http(query, lat, lng, max_results=20, mode="simple",
              "Recherche {}/{}".format(idx + 1, len(offsets)))
             for idx, (dlat, dlng, zm) in enumerate(offsets)
         ]
-        # Mode ultra : pas d'early stop, sleep plus long entre requêtes
-        # pour éviter le rate-limit Google sur l'IP du VPS (qui sinon
-        # baisse les résultats retournés).
+        # Mode ultra : pas d'early stop, sleep plus long, pas de refresh
+        # de session (la session vit + Google pose ses propres cookies
+        # qui aident à la cohérence des résultats).
         results = _multi_search(
             session, query, points, progress_callback,
             early_stop_threshold=999, sleep_between=1.5,
+            refresh_session_every=0,
         )
         if progress_callback:
             progress_callback(
@@ -845,8 +862,12 @@ def scrape_google_maps(
     Returns:
         Liste de dicts avec clés: nom, adresse, telephone, site_web, note, nb_avis
     """
-    # Pour le mode France, la query = juste l'activité (pas de ville)
-    if mode == "france":
+    # Pour les modes qui maximisent la zone (france, ultra), la query = juste
+    # l'activité — pas de nom de ville. Google biaise vers le centre-ville quand
+    # le nom de la ville est dans la query, et ignore les coordonnées GPS qu'on
+    # lui passe pour cibler les banlieues. Test : "restaurant" ramène 4312
+    # résultats sur 57 points GPS autour de Lyon, "restaurant Lyon" ramène 921.
+    if mode in ("france", "ultra"):
         query = activite
     else:
         query = "{} {}".format(activite, zone)
