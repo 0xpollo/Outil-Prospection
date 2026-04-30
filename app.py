@@ -396,6 +396,83 @@ def _make_score_badge(score):
     )
 
 
+# Hiérarchie de sources pour la prospection (plus bas = mieux)
+_SOURCE_TIER = {
+    "dirigeant": 1,
+    "direction": 2,
+    "metier": 2,
+    "site": 3,
+    "rh": 4,
+    "contact": 5,
+}
+
+_CONFIDENCE_RANK = {"vérifié": 0, "valid": 0, "probable": 1, "catchall": 1, "incertain": 2}
+
+
+def pick_best_email(entreprise):
+    """Sélectionne le meilleur email pour la prospection.
+    Retourne (email, confiance, source) ou ("", "", "").
+    Confiance > Source (un scrape vérifié bat un dirigeant incertain).
+    """
+    candidates = []
+
+    email_d = (entreprise.get("email_dirigeant") or "").strip()
+    if email_d:
+        conf_d = (entreprise.get("email_dirigeant_confiance")
+                  or entreprise.get("email_dirigeant_confidence") or "")
+        conf_d = {"high": "vérifié", "medium": "probable", "low": "incertain"}.get(conf_d, conf_d)
+        candidates.append((email_d, conf_d or "incertain", "dirigeant"))
+
+    email_s = (entreprise.get("emails") or "").strip()
+    if email_s:
+        conf_s = entreprise.get("emails_confiance") or ""
+        if not conf_s:
+            status = entreprise.get("email_status") or ""
+            conf_s = {"valid": "vérifié", "catchall": "probable",
+                      "public": "probable", "unknown": "incertain"}.get(status, "")
+        candidates.append((email_s, conf_s or "incertain", "site"))
+
+    for tup in (entreprise.get("emails_strategiques") or []):
+        if isinstance(tup, (list, tuple)) and len(tup) >= 3:
+            e, typ, conf = tup[0], tup[1], tup[2]
+        elif isinstance(tup, (list, tuple)) and len(tup) == 2:
+            e, typ, conf = tup[0], tup[1], ""
+        else:
+            continue
+        if e:
+            candidates.append((e, conf or "probable", typ or "contact"))
+
+    if not candidates:
+        return ("", "", "")
+
+    def _rank(c):
+        _email, conf, source = c
+        return (_CONFIDENCE_RANK.get(conf, 3), _SOURCE_TIER.get(source, 9))
+    candidates.sort(key=_rank)
+    return candidates[0]
+
+
+def _format_best_email(email, confidence, source):
+    """Email + badge confiance + petit suffixe source pour le tableau."""
+    if not email:
+        return ""
+    colors = {"vérifié": "#10b981", "probable": "#f59e0b", "incertain": "#94a3b8"}
+    color = colors.get(confidence, "#94a3b8")
+    label = confidence or "?"
+    src_labels = {
+        "dirigeant": "dirigeant", "direction": "direction", "metier": "métier",
+        "site": "site", "rh": "RH", "contact": "contact",
+    }
+    mailto = '<a href="mailto:' + email + '" style="color:#0EA5E9;text-decoration:none;">' + email + "</a>"
+    badge = ('<span style="background:' + color + ';color:#fff;padding:1px 6px;'
+             'border-radius:8px;font-size:0.7rem;margin-left:6px;">' + label + "</span>")
+    src_html = ""
+    if source in src_labels:
+        src_html = ('<span style="color:#94a3b8;font-size:0.7rem;margin-left:4px;">('
+                    + src_labels[source] + ")</span>")
+    return mailto + badge + src_html
+
+
 def _format_email_dirigeant(email, confidence):
     """Formate un email dirigeant avec un badge de confiance coloré."""
     if not email:
@@ -437,6 +514,52 @@ def _format_email_scraped(email, status):
     return mailto + badge
 
 
+def _build_export_df(results):
+    """Construit un DataFrame pour les exports (Excel/Airtable) avec UNE
+    seule colonne Email = meilleur de prospection + Email Confidence + Email Source.
+
+    Les anciennes colonnes (email_dirigeant, emails_strategiques, etc.) ne sont
+    PAS exportées — elles polluent les outils de mailing aval.
+    """
+    df = pd.DataFrame(results)
+
+    # Best email par ligne
+    best = [pick_best_email(ent) for ent in results]
+    df["Email"] = [b[0] for b in best]
+    df["Email Confidence"] = [b[1] for b in best]
+    df["Email Source"] = [b[2] for b in best]
+
+    # Dirigeant (concaténation prénom + nom)
+    if "dirigeant_prenom" in df.columns or "dirigeant_nom" in df.columns:
+        p_col = df.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df.columns else [""] * len(df)
+        n_col = df.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df.columns else [""] * len(df)
+        df["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
+
+    rename = {
+        "nom": "Nom",
+        "adresse": "Adresse",
+        "telephone": "Téléphone",
+        "site_web": "Site Web",
+        "note": "Note",
+        "nb_avis": "Nb avis",
+        "score": "Score",
+        "siren": "SIREN",
+        "dirigeant_qualite": "Qualité Dirigeant",
+        "contenu_site": "Contenu Site",
+    }
+    df = df.rename(columns=rename)
+
+    cols = [
+        "Nom", "Dirigeant", "Qualité Dirigeant", "SIREN",
+        "Email", "Email Confidence", "Email Source",
+        "Adresse", "Téléphone", "Site Web",
+        "Note", "Nb avis", "Score",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    df = df[cols]
+    return df
+
+
 def _export_excel(df_export):
     """Génère un fichier Excel avec la feuille Prospects + 3 feuilles de suivi."""
     buffer = BytesIO()
@@ -462,35 +585,22 @@ def render_results_table(results, show_deja_connue=False):
             for p, n in zip(prenoms, noms)
         ]
 
-    # Construire la colonne "Email dirigeant" avec badge de confiance
-    if "email_dirigeant" in df.columns:
-        confs = df.get("email_dirigeant_confidence", "").fillna("") if "email_dirigeant_confidence" in df.columns else [""] * len(df)
-        df["Email dirigeant"] = [
-            _format_email_dirigeant(email, conf)
-            for email, conf in zip(df["email_dirigeant"].fillna(""), confs)
-        ]
-
-    # Colonne "Email" (scrapé) avec badge de validation SMTP
-    if "emails" in df.columns and "email_status" in df.columns:
-        statuses = df["email_status"].fillna("")
-        df["emails"] = [
-            _format_email_scraped(email, status)
-            for email, status in zip(df["emails"].fillna(""), statuses)
-        ]
+    # Une seule colonne "Email" : meilleur email de prospection pondéré
+    # par (confiance, source). Voir pick_best_email plus haut.
+    df["Email"] = [_format_best_email(*pick_best_email(ent)) for ent in results]
 
     column_map = {
         "nom": "Nom",
         "adresse": "Adresse",
         "telephone": "T\u00e9l\u00e9phone",
         "site_web": "Site Web",
-        "emails": "Email",
         "note": "Note",
         "nb_avis": "Nb avis",
         "score": "Score",
     }
     df = df.rename(columns=column_map)
 
-    display_cols = ["Nom", "Dirigeant", "Email dirigeant", "Adresse", "T\u00e9l\u00e9phone", "Email", "Site Web", "Note", "Nb avis", "Score"]
+    display_cols = ["Nom", "Dirigeant", "Email", "Adresse", "T\u00e9l\u00e9phone", "Site Web", "Note", "Nb avis", "Score"]
     display_cols = [c for c in display_cols if c in df.columns]
     df = df[display_cols]
 
@@ -905,77 +1015,39 @@ with tab_recherche:
         # Export
         col_excel, col_airtable = st.columns(2)
 
+        df_raw = _build_export_df(results)
+
         with col_excel:
-            df_export = df.copy()
-            df_export["Statut"] = ""
-            df_export["Date d'envoi"] = ""
-            df_export["Nom nettoyé"] = ""
-            df_export["Ville"] = ""
+            df_excel = df_raw.copy()
+            df_excel["Statut"] = ""
+            df_excel["Date d'envoi"] = ""
+            df_excel["Nom nettoyé"] = ""
+            df_excel["Ville"] = ""
             st.download_button(
-                label="T\u00e9l\u00e9charger Excel",
-                data=_export_excel(df_export),
+                label="Télécharger Excel",
+                data=_export_excel(df_excel),
                 file_name="prospection.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
 
         with col_airtable:
-            df_at = pd.DataFrame(results)
-
-            # Construire la colonne Dirigeant avant le rename
-            if "dirigeant_prenom" in df_at.columns or "dirigeant_nom" in df_at.columns:
-                p_col = df_at.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df_at.columns else [""] * len(df_at)
-                n_col = df_at.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df_at.columns else [""] * len(df_at)
-                df_at["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
-
-            airtable_map = {
-                "nom": "Name",
-                "adresse": "Address",
-                "telephone": "Phone",
-                "emails": "Email",
-                "site_web": "Website",
-                "note": "Google Rating",
-                "nb_avis": "Review Count",
-                "score": "Score",
-                "siren": "SIREN",
-                "email_dirigeant": "Email Dirigeant",
-                "email_dirigeant_confidence": "Email Dirigeant Confidence",
-                "email_status": "Email Status",
-                "email_confidence": "Email Confidence",
-                "dirigeant_qualite": "Qualite Dirigeant",
-                "contenu_site": "Contenu Site",
-            }
-            df_at = df_at.rename(columns=airtable_map)
-
-            df_at["Score Label"] = df_at["Score"].apply(
-                lambda s: score_label(int(s)) if pd.notna(s) and s != "" else ""
-            )
+            df_at = df_raw.copy()
+            if "Score" in df_at.columns:
+                df_at["Score Label"] = df_at["Score"].apply(
+                    lambda s: score_label(int(s)) if pd.notna(s) and s != "" else ""
+                )
             search_activite = st.session_state.get("search_activite", "")
             search_zone = st.session_state.get("search_zone", "")
-            df_at["Search Query"] = f"{search_activite} \u00e0 {search_zone}"
+            df_at["Search Query"] = "{} à {}".format(search_activite, search_zone)
             df_at["Date Found"] = datetime.now().strftime("%Y-%m-%d")
-
-            airtable_cols = [
-                "Name", "Dirigeant", "Qualite Dirigeant", "Email Dirigeant",
-                "Email Dirigeant Confidence", "SIREN",
-                "Address", "Phone", "Email", "Email Status", "Email Confidence",
-                "Website",
-                "Google Rating", "Review Count", "Score", "Score Label",
-                "Contenu Site",
-                "Search Query", "Date Found",
-            ]
-            airtable_cols = [c for c in airtable_cols if c in df_at.columns]
-            df_at = df_at[airtable_cols]
             df_at["Statut"] = ""
             df_at["Date d'envoi"] = ""
             df_at["Nom nettoyé"] = ""
             df_at["Ville"] = ""
-
             for col in df_at.select_dtypes(include="object").columns:
                 df_at[col] = df_at[col].fillna("").astype(str).str.strip()
-
             csv_airtable = "\ufeff" + df_at.to_csv(index=False)
-
             st.download_button(
                 label="Export Airtable (CSV)",
                 data=csv_airtable.encode("utf-8"),
@@ -1144,15 +1216,17 @@ with tab_historique:
                     # Boutons d'export
                     col_exp_excel, col_exp_airtable = st.columns(2)
 
+                    df_raw = _build_export_df(hist_results)
+
                     with col_exp_excel:
-                        hist_df_export = hist_df.copy()
-                        hist_df_export["Statut"] = ""
-                        hist_df_export["Date d'envoi"] = ""
-                        hist_df_export["Nom nettoyé"] = ""
-                        hist_df_export["Ville"] = ""
+                        df_excel = df_raw.copy()
+                        df_excel["Statut"] = ""
+                        df_excel["Date d'envoi"] = ""
+                        df_excel["Nom nettoyé"] = ""
+                        df_excel["Ville"] = ""
                         st.download_button(
-                            label="T\u00e9l\u00e9charger Excel",
-                            data=_export_excel(hist_df_export),
+                            label="Télécharger Excel",
+                            data=_export_excel(df_excel),
                             file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True,
@@ -1160,61 +1234,23 @@ with tab_historique:
                         )
 
                     with col_exp_airtable:
-                        df_at_h = pd.DataFrame(hist_results)
-
-                        if "dirigeant_prenom" in df_at_h.columns or "dirigeant_nom" in df_at_h.columns:
-                            p_col = df_at_h.get("dirigeant_prenom", "").fillna("") if "dirigeant_prenom" in df_at_h.columns else [""] * len(df_at_h)
-                            n_col = df_at_h.get("dirigeant_nom", "").fillna("") if "dirigeant_nom" in df_at_h.columns else [""] * len(df_at_h)
-                            df_at_h["Dirigeant"] = [("{} {}".format(p, n)).strip().title() for p, n in zip(p_col, n_col)]
-
-                        at_map = {
-                            "nom": "Name",
-                            "adresse": "Address",
-                            "telephone": "Phone",
-                            "emails": "Email",
-                            "site_web": "Website",
-                            "note": "Google Rating",
-                            "nb_avis": "Review Count",
-                            "score": "Score",
-                            "siren": "SIREN",
-                            "email_dirigeant": "Email Dirigeant",
-                            "email_dirigeant_confidence": "Email Dirigeant Confidence",
-                            "email_status": "Email Status",
-                            "email_confidence": "Email Confidence",
-                            "dirigeant_qualite": "Qualite Dirigeant",
-                            "contenu_site": "Contenu Site",
-                        }
-                        df_at_h = df_at_h.rename(columns=at_map)
-                        df_at_h["Score Label"] = df_at_h["Score"].apply(
-                            lambda sc: score_label(int(sc)) if pd.notna(sc) and sc != "" else ""
-                        )
-                        df_at_h["Search Query"] = "%s \u00e0 %s" % (s['activite'], s['zone'])
-                        df_at_h["Date Found"] = s["date_recherche"][:10]
-
-                        at_cols = [
-                            "Name", "Dirigeant", "Qualite Dirigeant", "Email Dirigeant",
-                            "Email Dirigeant Confidence", "SIREN",
-                            "Address", "Phone", "Email", "Email Status", "Email Confidence",
-                            "Website",
-                            "Google Rating", "Review Count", "Score", "Score Label",
-                            "Contenu Site",
-                            "Search Query", "Date Found",
-                        ]
-                        at_cols = [c for c in at_cols if c in df_at_h.columns]
-                        df_at_h = df_at_h[at_cols]
-                        df_at_h["Statut"] = ""
-                        df_at_h["Date d'envoi"] = ""
-                        df_at_h["Nom nettoyé"] = ""
-                        df_at_h["Ville"] = ""
-
-                        for col in df_at_h.select_dtypes(include="object").columns:
-                            df_at_h[col] = df_at_h[col].fillna("").astype(str).str.strip()
-
-                        csv_at_h = "\ufeff" + df_at_h.to_csv(index=False)
-
+                        df_at = df_raw.copy()
+                        if "Score" in df_at.columns:
+                            df_at["Score Label"] = df_at["Score"].apply(
+                                lambda sc: score_label(int(sc)) if pd.notna(sc) and sc != "" else ""
+                            )
+                        df_at["Search Query"] = "%s à %s" % (s['activite'], s['zone'])
+                        df_at["Date Found"] = s["date_recherche"][:10]
+                        df_at["Statut"] = ""
+                        df_at["Date d'envoi"] = ""
+                        df_at["Nom nettoyé"] = ""
+                        df_at["Ville"] = ""
+                        for col in df_at.select_dtypes(include="object").columns:
+                            df_at[col] = df_at[col].fillna("").astype(str).str.strip()
+                        csv_at = "\ufeff" + df_at.to_csv(index=False)
                         st.download_button(
                             label="Export Airtable (CSV)",
-                            data=csv_at_h.encode("utf-8"),
+                            data=csv_at.encode("utf-8"),
                             file_name="prospection_%s_%s_airtable.csv" % (s['activite'], s['zone']),
                             mime="text/csv",
                             use_container_width=True,
