@@ -1,31 +1,28 @@
 """Génération et validation d'emails nominatifs à partir du dirigeant + domaine.
 
+Toutes les validations SMTP passent par le service VPS distant (cf.
+`smtp_verifier.py` et `remote_verify` ci-dessous). Le code SMTP local
+(`smtplib` + DNS direct) a été retiré car il ne tournait jamais en pratique
+(port 25 bloqué côté ISP).
+
 Étapes :
 1. Extrait le domaine depuis le site web
 2. Génère des patterns d'emails probables (prenom.nom@, p.nom@, etc.)
-3. Vérifie que le domaine a des enregistrements MX (email configuré)
-4. Si le port 25 est accessible : valide via SMTP RCPT TO + détecte catchall
-5. Sinon (cas fréquent en France, port 25 bloqué par le FAI) : retourne
-   le pattern le plus probable avec confiance réduite
+3. Valide via le service VPS (RCPT TO réel)
 
 Confidence :
 - 'high'   : SMTP confirme que la boîte existe et le domaine n'est pas catchall
-- 'medium' : MX existe et pattern standard (ou catchall, ou SMTP indisponible)
+- 'medium' : catchall ou MX-only (validation impossible)
 - 'low'    : pattern généré mais aucun signal positif
 - 'none'   : pas de domaine exploitable
 """
 
-import random
 import re
-import smtplib
-import socket
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, quote_plus
 
-import dns.resolver
-import dns.exception
 import requests
 
 try:
@@ -34,20 +31,6 @@ except ImportError:
     VERIFIER_URL = ""
     VERIFIER_KEY = ""
 
-
-# Timeouts pour SMTP et DNS
-SMTP_TIMEOUT = 4
-DNS_TIMEOUT = 3
-
-# Flag global : détecté au premier appel SMTP qui timeout.
-# Si True, on skip toutes les validations SMTP suivantes.
-_SMTP_BLOCKED = False
-
-# Résolveurs DNS publics (évite le DNS FAI souvent lent/bloqué)
-_DNS_NAMESERVERS = ["1.1.1.1", "8.8.8.8"]
-
-# Adresses "from" pour le handshake SMTP (domaine neutre)
-_SMTP_FROM_DOMAIN = "verifier.example.com"
 
 # Domaines d'email grand public : on ne peut pas deviner les patterns
 # (gmail, yahoo, etc. n'ont rien à voir avec l'entreprise)
@@ -72,21 +55,10 @@ def _normalize_token(s):
 
 
 def _extract_domain(site_web):
-    """Extrait le domaine d'un site web (sans www., sans sous-chemins)."""
-    if not site_web:
-        return ""
-    url = site_web if "://" in site_web else "http://" + site_web
-    try:
-        parsed = urlparse(url)
-        host = parsed.netloc or parsed.path
-        host = host.lower().strip()
-        if host.startswith("www."):
-            host = host[4:]
-        # Retirer le port éventuel
-        host = host.split(":")[0].split("/")[0]
-        return host
-    except Exception:
-        return ""
+    """Wrapper qui adapte `validators.extract_domain` à l'ancien contrat
+    (retourne "" au lieu de None pour faciliter le `if not domain`)."""
+    from validators import extract_domain
+    return extract_domain(site_web) or ""
 
 
 def generate_patterns(prenom, nom, domain):
@@ -124,92 +96,6 @@ def generate_patterns(prenom, nom, domain):
     return uniq
 
 
-def _get_mx_records(domain):
-    """Retourne la liste des serveurs MX triés par priorité (croissante).
-
-    Filtre les "null MX" (RFC 7505 : "." ou chaînes trop courtes) qui indiquent
-    que le domaine n'accepte pas d'email.
-    """
-    try:
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = _DNS_NAMESERVERS
-        resolver.timeout = DNS_TIMEOUT
-        resolver.lifetime = DNS_TIMEOUT
-        answers = resolver.resolve(domain, "MX")
-        mx_records = sorted(
-            [(r.preference, str(r.exchange).rstrip(".")) for r in answers],
-            key=lambda x: x[0],
-        )
-        # Filtrer les hosts invalides : "." (null MX), "~", chaînes de 1 caractère
-        valid = [host for _, host in mx_records if host and len(host) > 2 and "." in host]
-        return valid
-    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN,
-            dns.resolver.NoNameservers, dns.exception.Timeout):
-        return []
-    except Exception:
-        return []
-
-
-def _smtp_rcpt_check(mx_host, emails_to_test):
-    """Ouvre une connexion SMTP à mx_host et teste une liste d'emails.
-
-    Retourne un dict {email: 'valid' | 'invalid' | 'unknown'}.
-    Sur erreur de connexion, tous les emails sont marqués 'unknown'
-    et _SMTP_BLOCKED passe à True pour éviter les prochains timeouts.
-    """
-    global _SMTP_BLOCKED
-    result = {e: "unknown" for e in emails_to_test}
-
-    if _SMTP_BLOCKED:
-        return result
-
-    try:
-        server = smtplib.SMTP(timeout=SMTP_TIMEOUT)
-        server.connect(mx_host, 25)
-        server.helo(_SMTP_FROM_DOMAIN)
-        server.mail("verify@" + _SMTP_FROM_DOMAIN)
-
-        for email in emails_to_test:
-            try:
-                code, _ = server.rcpt(email)
-                if code == 250 or code == 251:
-                    result[email] = "valid"
-                elif code in (550, 551, 553):
-                    result[email] = "invalid"
-                else:
-                    # 450, 451, 452, 4xx : ambiguous (greylisting, temporaire)
-                    result[email] = "unknown"
-            except smtplib.SMTPServerDisconnected:
-                break
-            except Exception:
-                result[email] = "unknown"
-
-        try:
-            server.quit()
-        except Exception:
-            pass
-    except (socket.timeout, ConnectionRefusedError):
-        # Port 25 bloqué par le FAI : on désactive SMTP pour les prochains appels
-        _SMTP_BLOCKED = True
-    except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected,
-            socket.gaierror, OSError):
-        pass
-    except Exception:
-        pass
-    return result
-
-
-def smtp_available():
-    """Retourne True si les checks SMTP semblent fonctionner (port 25 pas bloqué)."""
-    return not _SMTP_BLOCKED
-
-
-def reset_smtp_block():
-    """Réinitialise la détection de blocage SMTP (utile pour les tests)."""
-    global _SMTP_BLOCKED
-    _SMTP_BLOCKED = False
-
-
 def remote_verify(email, timeout=12):
     """Vérifie un email via le micro-service distant (VPS avec port 25 ouvert).
 
@@ -231,55 +117,34 @@ def remote_verify(email, timeout=12):
     return None
 
 
-def remote_check_catchall(domain, timeout=12):
-    """Vérifie si un domaine est catchall via le service distant."""
-    if not VERIFIER_URL or not VERIFIER_KEY:
-        return None
-    try:
-        resp = requests.get(
-            VERIFIER_URL + "/catchall",
-            params={"domain": domain, "key": VERIFIER_KEY},
-            timeout=timeout,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-    except requests.RequestException:
-        return None
-    return None
+def find_nominative_email(prenom, nom, site_web):
+    """Trouve le meilleur email nominatif pour un dirigeant via le service VPS.
 
-
-def remote_available():
-    """Retourne True si le service distant est configuré et répond."""
-    if not VERIFIER_URL:
-        return False
-    try:
-        resp = requests.get(VERIFIER_URL + "/health", timeout=3)
-        return resp.status_code == 200
-    except requests.RequestException:
-        return False
-
-
-def _is_catchall(domain, mx_host):
-    """Teste si le domaine accepte n'importe quel email (catchall).
-
-    Si oui, la validation SMTP des patterns ne prouve rien.
+    Retourne {email, confidence, method} avec :
+    - 'high'   : SMTP confirmé valide
+    - 'medium' : catchall (tout accepte)
+    - 'low'    : best guess (aucun signal positif)
+    - 'none'   : domaine inexploitable (public, pas de MX, format invalide)
     """
-    fake_local = "zz" + "".join(random.choices("0123456789abcdef", k=16))
-    fake_email = "{}@{}".format(fake_local, domain)
-    result = _smtp_rcpt_check(mx_host, [fake_email])
-    return result.get(fake_email) == "valid"
+    domain = _extract_domain(site_web)
+    if not domain:
+        return {"email": "", "confidence": "none", "method": "no_domain"}
+    if domain in PUBLIC_EMAIL_DOMAINS:
+        return {"email": "", "confidence": "none", "method": "public_domain"}
 
+    patterns = generate_patterns(prenom, nom, domain)
+    if not patterns:
+        return {"email": "", "confidence": "none", "method": "no_domain"}
 
-def _find_via_remote(patterns, max_tests=5):
-    """Valide les patterns via le micro-service distant (VPS).
+    if not (VERIFIER_URL and VERIFIER_KEY):
+        # Aucun moyen de valider : on retourne le pattern probable en best-guess
+        return {"email": patterns[0], "confidence": "low", "method": "best_guess"}
 
-    Retourne un dict {email, confidence, method} ou None si le service a échoué.
-    """
-    first_result = remote_verify(patterns[0])
-    if first_result is None:
-        return None
-
-    status = first_result.get("status", "")
+    # Première passe sur le pattern le plus probable
+    first = remote_verify(patterns[0])
+    if first is None:
+        return {"email": patterns[0], "confidence": "low", "method": "best_guess"}
+    status = first.get("status", "")
     if status == "no_mx":
         return {"email": "", "confidence": "none", "method": "no_mx"}
     if status == "invalid_format":
@@ -290,87 +155,16 @@ def _find_via_remote(patterns, max_tests=5):
         return {"email": patterns[0], "confidence": "high", "method": "smtp_verified"}
 
     # status == "invalid" ou "unknown" : tester les patterns suivants
-    for pattern in patterns[1:max_tests]:
+    for pattern in patterns[1:5]:
         r = remote_verify(pattern)
         if r is None:
-            return None  # service devenu indisponible, fallback local
+            break
         s = r.get("status", "")
         if s == "valid":
             return {"email": pattern, "confidence": "high", "method": "smtp_verified"}
         if s == "catchall":
             return {"email": pattern, "confidence": "medium", "method": "catchall"}
 
-    # Aucun pattern validé : pattern le plus probable en faible confiance
-    return {"email": patterns[0], "confidence": "low", "method": "best_guess"}
-
-
-def find_nominative_email(prenom, nom, site_web):
-    """Trouve le meilleur email nominatif pour un dirigeant.
-
-    Retourne un dict :
-      {
-        'email': str,              # meilleur candidat (vide si aucun)
-        'confidence': 'high' | 'medium' | 'low' | 'none',
-        'method': str,             # 'smtp_verified' | 'catchall' | 'best_guess' | 'no_domain' | 'public_domain'
-      }
-
-    - 'high' : SMTP a confirmé la boîte et le domaine n'est pas catchall
-    - 'medium' : SMTP a confirmé mais domaine catchall (tout accepte)
-    - 'low' : pas de SMTP possible → pattern le plus probable retourné en 'best guess'
-    - 'none' : pas de domaine exploitable
-    """
-    domain = _extract_domain(site_web)
-    if not domain:
-        return {"email": "", "confidence": "none", "method": "no_domain"}
-
-    if domain in PUBLIC_EMAIL_DOMAINS:
-        return {"email": "", "confidence": "none", "method": "public_domain"}
-
-    patterns = generate_patterns(prenom, nom, domain)
-    if not patterns:
-        return {"email": "", "confidence": "none", "method": "no_domain"}
-
-    # Mode prioritaire : service distant (VPS avec port 25 ouvert)
-    if VERIFIER_URL and VERIFIER_KEY:
-        remote_result = _find_via_remote(patterns)
-        if remote_result is not None:
-            return remote_result
-        # Service injoignable : fallback sur le flux local
-
-    # Résolution MX : si pas de MX, le domaine n'a pas d'email configuré
-    mx_hosts = _get_mx_records(domain)
-    if not mx_hosts:
-        return {"email": "", "confidence": "none", "method": "no_mx"}
-
-    # Si le port 25 est déjà connu comme bloqué, ne même pas essayer le SMTP
-    if _SMTP_BLOCKED:
-        return {"email": patterns[0], "confidence": "medium", "method": "mx_only"}
-
-    mx_host = mx_hosts[0]
-
-    # Détection catchall AVANT de tester les patterns
-    catchall = _is_catchall(domain, mx_host)
-
-    # Si la détection catchall a déclenché le blocage SMTP, on bascule
-    if _SMTP_BLOCKED:
-        return {"email": patterns[0], "confidence": "medium", "method": "mx_only"}
-
-    if catchall:
-        return {"email": patterns[0], "confidence": "medium", "method": "catchall"}
-
-    # Tester chaque pattern jusqu'au premier valide (max 5 pour éviter de hammerer)
-    to_test = patterns[:5]
-    results = _smtp_rcpt_check(mx_host, to_test)
-
-    for pattern in to_test:
-        if results.get(pattern) == "valid":
-            return {"email": pattern, "confidence": "high", "method": "smtp_verified"}
-
-    # Si le SMTP a été détecté comme bloqué pendant les tests, on tombe en mx_only
-    if _SMTP_BLOCKED:
-        return {"email": patterns[0], "confidence": "medium", "method": "mx_only"}
-
-    # MX existe mais aucun pattern confirmé → pattern probable en faible confiance
     return {"email": patterns[0], "confidence": "low", "method": "best_guess"}
 
 
@@ -451,14 +245,19 @@ def validate_scraped_emails(entreprises, progress_callback=None, workers=5):
                         completed[0] / max(total, 1),
                     )
 
-    # NE JAMAIS dropper l'email. On enregistre juste le statut SMTP, l'UI
-    # l'affichera avec un badge (rouge si invalid, orange si unknown, vert
-    # si valid). Drop = perte de données = mauvaise idée.
+    # On drop l'email quand SMTP confirme qu'il n'existe pas (invalid / no_mx
+    # / invalid_format). Le status est conservé pour traçabilité ("on a testé,
+    # c'est mort") et Phase 2 Perplexity firera quand même puisque
+    # _has_quality_email retourne False sur ces statuts.
+    DEAD = {"invalid", "no_mx", "invalid_format"}
     for e in entreprises:
         email = (e.get("emails", "") or "").strip().lower()
         if email and email in results:
-            e["email_status"] = results[email]["status"]
+            status = results[email]["status"]
+            e["email_status"] = status
             e["email_confidence"] = results[email]["confidence"]
+            if status in DEAD:
+                e["emails"] = ""
         else:
             e["email_status"] = ""
             e["email_confidence"] = ""

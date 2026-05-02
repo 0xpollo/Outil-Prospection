@@ -21,7 +21,9 @@ peut limiter pendant les tests pour ne pas brûler les crédits Perplexity).
 
 import logging
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import requests
@@ -112,7 +114,7 @@ def _generate_email_candidates(prenom_usuel, nom_variants, domain):
 
 
 def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
-                         site_web="", lieu=""):
+                         site_web=""):
     """Pipeline complet pour trouver l'email du dirigeant.
 
     1. Perplexity ciblée (si dispo)
@@ -141,18 +143,14 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
         if pplx:
             email_found = pplx.get("email", "")
             if email_found and not is_generic_email(email_found):
-                if smtp_verifier.is_available():
-                    check = smtp_verifier.verify_email(email_found)
-                    if check == "valid":
-                        return email_found, "vérifié"
-                    if check == "catchall":
-                        return email_found, "probable"
-                    if check == "unknown":
-                        # OVH/IONOS : on garde l'email Perplexity en probable
-                        return email_found, "probable"
-                    # invalid / no_mx : Perplexity s'est trompé → patterns
-                else:
+                # On tente toujours verify_email : si le service est down,
+                # check sera "error" → on garde l'email Perplexity en probable.
+                check = smtp_verifier.verify_email(email_found)
+                if check == "valid":
+                    return email_found, "vérifié"
+                if check in ("catchall", "unknown", "error"):
                     return email_found, "probable"
+                # invalid / no_mx : Perplexity s'est trompé → patterns
             if not site_web and pplx.get("site_web"):
                 site_web = pplx["site_web"]
 
@@ -161,12 +159,14 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
     if not domain:
         return None, None
 
-    domain_status = "unknown"
-    if smtp_verifier.is_available():
-        domain_status = smtp_verifier.check_domain(domain)
-        if domain_status == "no_mx":
-            logger.info("MX check → %s : pas de MX", domain)
-            return None, None
+    # On appelle directement check_domain sans passer par is_available() :
+    # si le service est down, check_domain retourne "unknown" naturellement,
+    # et on continuera quand même à tenter verify_email sur les candidats
+    # (qui ont leur propre gestion d'erreur).
+    domain_status = smtp_verifier.check_domain(domain)
+    if domain_status == "no_mx":
+        logger.info("MX check → %s : pas de MX", domain)
+        return None, None
 
     candidates = _generate_email_candidates(prenom_usuel, nom_variants, domain)
 
@@ -190,16 +190,15 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
     if domain_status == "catchall":
         return candidates[0], "probable"
 
-    # Pas de SMTP du tout : best guess non validé
-    if not smtp_verifier.is_available():
-        return candidates[0], "incertain"
-
-    # On tente verify_email sur les top candidats. Cela couvre :
+    # On tente verify_email sur les top candidats. Si le service est down,
+    # verify_email retourne "error" et la boucle gère ça (fallthrough sur
+    # "probable" pour status=unknown, "incertain" sinon). Cela couvre :
     # - domain_status == "ok" : verify donne des réponses fiables (valid/invalid)
     # - domain_status == "unknown" : le /catchall a échoué mais /verify peut marcher,
     #   et même s'il dit "unknown" c'est OVH/IONOS → on classe en "probable" (spec)
     limit = 6 if domain_status == "ok" else 4
     invalid_count = 0
+    error_count = 0
     for email in candidates[:limit]:
         check = smtp_verifier.verify_email(email)
         if check == "valid":
@@ -207,21 +206,33 @@ def find_dirigeant_email(prenom_brut, nom_brut, qualite, nom_entreprise,
         if check == "catchall":
             return email, "probable"
         if check == "unknown":
-            # Serveur MX accepte la connexion mais ne tranche pas (OVH/IONOS).
-            # Spec : sans Debounce en fallback → "probable" sur le pattern principal.
+            # MX accepte la connexion mais ne tranche pas (OVH/IONOS) → spec.
             return candidates[0], "probable"
+        if check == "no_mx":
+            # Pas d'email sur ce domaine, inutile de continuer
+            break
         if check == "invalid":
             invalid_count += 1
-        if check in ("error", "no_mx"):
-            # error = service HS, no_mx = pas d'email du tout
-            break
+        elif check == "error":
+            # Service flaky : on ne break PAS sur un seul blip, on retente le
+            # candidat suivant. Cap à 3 erreurs pour ne pas hanger non plus.
+            error_count += 1
+            if error_count >= 3:
+                break
         time.sleep(0.2)
 
-    # Service "ok" + tous les candidats invalides → SMTP a tranché négatif
-    if domain_status == "ok" and invalid_count >= 1:
+    # SMTP a tranché net (que des invalides, aucune erreur) → patterns tous
+    # faux, on drop. Couvre domain_status "ok" ET "unknown" : si le MX peut
+    # rejeter franchement, c'est que /verify est fiable sur ce domaine.
+    if invalid_count > 0 and error_count == 0:
         return None, None
 
-    # Pas de signal SMTP exploitable (service flaky / timeout) → best guess
+    # MX présent (status "unknown") + signal mixte ou erreurs → candidates[0]
+    # est plausible mais non confirmé → "probable".
+    if domain_status == "unknown":
+        return candidates[0], "probable"
+
+    # Service flaky côté ok (rare) → best guess
     return candidates[0], "incertain"
 
 
@@ -619,7 +630,31 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
         if not existing:
             # Sélection : préférer un email perso non-générique si possible
             non_gen = [e for e in pplx_emails if not is_generic_email(e)]
-            entreprise["emails"] = non_gen[0] if non_gen else next(iter(pplx_emails))
+            chosen = non_gen[0] if non_gen else next(iter(pplx_emails))
+            entreprise["emails"] = chosen
+            # Valider via SMTP pour poser status + confiance corrects.
+            # Sans ça, le scoring le voyait en "incertain" alors que c'est
+            # un email phare retourné par Perplexity.
+            try:
+                check = smtp_verifier.verify_email(chosen)
+            except Exception:
+                check = "error"
+            if check == "valid":
+                entreprise["email_status"] = "valid"
+                entreprise["email_confidence"] = "high"
+                entreprise["emails_confiance"] = "vérifié"
+            elif check in ("catchall", "unknown"):
+                entreprise["email_status"] = check
+                entreprise["email_confidence"] = "medium"
+                entreprise["emails_confiance"] = "probable"
+            elif check in ("invalid", "no_mx"):
+                # Perplexity s'est trompé : effacer l'email
+                entreprise["emails"] = ""
+            else:
+                # error / état inconnu : garder en "probable" (Perplexity a vu cet
+                # email sur le site officiel, c'est un signal fort indépendamment
+                # du SMTP qui peut être down)
+                entreprise["emails_confiance"] = "probable"
 
     # --- 2. Email dirigeant ---
     prenom = (entreprise.get("dirigeant_prenom") or "").strip()
@@ -639,7 +674,7 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
     if prenom and nom_dir:
         if not email_dir:
             try:
-                e, conf = find_dirigeant_email(prenom, nom_dir, qualite, nom, site_web, lieu)
+                e, conf = find_dirigeant_email(prenom, nom_dir, qualite, nom, site_web)
             except Exception as exc:
                 logger.debug("find_dirigeant_email erreur: %s", exc)
                 e, conf = None, None
@@ -739,38 +774,61 @@ def enrich_one(entreprise, do_perplexity=True, do_strategic=True):
 
 def enrich_advanced(entreprises, progress_callback=None,
                     do_perplexity=True, do_strategic=True,
-                    max_entreprises=None):
-    """Enrichissement avancé sur une liste d'entreprises.
+                    max_entreprises=None, workers=6):
+    """Enrichissement avancé sur une liste d'entreprises (parallèle).
 
     do_perplexity : appelle Perplexity Sonar (sinon : juste validation + GMaps + SMTP)
     do_strategic  : recherche direction@, rh@, etc.
     max_entreprises : cap pour éviter de brûler les crédits pendant les tests
+    workers : nombre de threads concurrents (Perplexity + SMTP étant IO-bound)
     """
     smtp_verifier.reset_cache()
-    total = len(entreprises) if max_entreprises is None else min(len(entreprises), max_entreprises)
+    to_enrich = entreprises if max_entreprises is None else entreprises[:max_entreprises]
+    total = len(to_enrich)
+
+    # Marquer les entreprises au-delà du cap comme non-enrichies (pour cohérence
+    # downstream).
+    if max_entreprises is not None:
+        for ent in entreprises[max_entreprises:]:
+            ent.setdefault("email_dirigeant_confiance", "")
+            ent.setdefault("emails_strategiques", [])
+            ent.setdefault("emails_confiance", "")
 
     if progress_callback:
         progress_callback("Enrichissement avancé sur %d entreprises..." % total, 0.0)
 
-    for idx, ent in enumerate(entreprises):
-        if max_entreprises is not None and idx >= max_entreprises:
-            # Marquer les autres comme non-enrichies
-            ent.setdefault("email_dirigeant_confiance", "")
-            ent.setdefault("emails_strategiques", [])
-            ent.setdefault("emails_confiance", "")
-            continue
-        if progress_callback:
-            progress_callback(
-                "Enrichissement %d/%d : %s" % (idx + 1, total, ent.get("nom", "")),
-                (idx + 1) / max(total, 1),
-            )
+    def _safe_enrich(ent):
         try:
-            enrich_one(ent, do_perplexity=do_perplexity, do_strategic=do_strategic)
+            return enrich_one(ent, do_perplexity=do_perplexity, do_strategic=do_strategic)
         except Exception as e:
             logger.warning("Enrich one a crashé pour %s : %s", ent.get("nom", "?"), e)
             ent.setdefault("email_dirigeant_confiance", "")
             ent.setdefault("emails_strategiques", [])
             ent.setdefault("emails_confiance", "")
+            return ent
+
+    completed = [0]
+    progress_lock = threading.Lock()
+
+    if total > 0:
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            futures = {ex.submit(_safe_enrich, ent): ent for ent in to_enrich}
+            for future in as_completed(futures):
+                ent = futures[future]
+                # Récupère le résultat (déjà en place dans `ent`, mais déclenche
+                # la propagation d'exception inattendue)
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning("Future enrich crashé pour %s : %s", ent.get("nom", "?"), e)
+                with progress_lock:
+                    completed[0] += 1
+                    done = completed[0]
+                if progress_callback:
+                    progress_callback(
+                        "Enrichissement %d/%d : %s" % (done, total, ent.get("nom", "")),
+                        done / max(total, 1),
+                    )
 
     if progress_callback:
         progress_callback("Enrichissement avancé terminé !", 1.0)

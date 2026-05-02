@@ -75,6 +75,8 @@ def init_db():
             email_dirigeant_confidence TEXT DEFAULT '',
             email_status TEXT DEFAULT '',
             email_confidence TEXT DEFAULT '',
+            emails_confiance TEXT DEFAULT '',
+            emails_strategiques TEXT DEFAULT '',
             contenu_site TEXT DEFAULT '',
             date_creation TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             date_mise_a_jour TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -95,7 +97,8 @@ def init_db():
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(entreprises)").fetchall()}
     for col in ("siren", "dirigeant_prenom", "dirigeant_nom", "dirigeant_qualite",
                 "email_dirigeant", "email_dirigeant_confidence",
-                "email_status", "email_confidence", "contenu_site"):
+                "email_status", "email_confidence", "emails_confiance",
+                "emails_strategiques", "contenu_site"):
         if col not in existing_cols:
             conn.execute("ALTER TABLE entreprises ADD COLUMN {} TEXT DEFAULT ''".format(col))
 
@@ -132,14 +135,28 @@ def save_search(activite: str, zone: str, parametres: dict,
 
         deja_connue = existing is not None
 
+        # Sérialiser emails_strategiques (liste de tuples) en JSON
+        strat = e.get("emails_strategiques") or []
+        if isinstance(strat, str):
+            strat_json = strat
+        else:
+            try:
+                strat_json = json.dumps(
+                    [list(t) if isinstance(t, tuple) else t for t in strat],
+                    ensure_ascii=False,
+                )
+            except (TypeError, ValueError):
+                strat_json = ""
+
         # Insérer ou mettre à jour
         conn.execute(
             """
             INSERT INTO entreprises (nom, adresse, telephone, site_web, emails, note, nb_avis, score,
                                      siren, dirigeant_prenom, dirigeant_nom, dirigeant_qualite,
                                      email_dirigeant, email_dirigeant_confidence,
-                                     email_status, email_confidence, contenu_site)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     email_status, email_confidence,
+                                     emails_confiance, emails_strategiques, contenu_site)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(nom, adresse) DO UPDATE SET
                 telephone = excluded.telephone,
                 site_web = excluded.site_web,
@@ -155,6 +172,8 @@ def save_search(activite: str, zone: str, parametres: dict,
                 email_dirigeant_confidence = CASE WHEN excluded.email_dirigeant_confidence != '' THEN excluded.email_dirigeant_confidence ELSE email_dirigeant_confidence END,
                 email_status = CASE WHEN excluded.email_status != '' THEN excluded.email_status ELSE email_status END,
                 email_confidence = CASE WHEN excluded.email_confidence != '' THEN excluded.email_confidence ELSE email_confidence END,
+                emails_confiance = CASE WHEN excluded.emails_confiance != '' THEN excluded.emails_confiance ELSE emails_confiance END,
+                emails_strategiques = CASE WHEN excluded.emails_strategiques != '' THEN excluded.emails_strategiques ELSE emails_strategiques END,
                 contenu_site = CASE WHEN excluded.contenu_site != '' THEN excluded.contenu_site ELSE contenu_site END,
                 date_mise_a_jour = datetime('now', 'localtime')
             """,
@@ -165,8 +184,10 @@ def save_search(activite: str, zone: str, parametres: dict,
                 e.get("nb_avis", 0), e.get("score", 0),
                 e.get("siren", ""), e.get("dirigeant_prenom", ""),
                 e.get("dirigeant_nom", ""), e.get("dirigeant_qualite", ""),
-                e.get("email_dirigeant", ""), e.get("email_dirigeant_confidence", ""),
+                e.get("email_dirigeant", ""),
+                e.get("email_dirigeant_confiance") or e.get("email_dirigeant_confidence", ""),
                 e.get("email_status", ""), e.get("email_confidence", ""),
+                e.get("emails_confiance", ""), strat_json,
                 e.get("contenu_site", ""),
             ),
         )
@@ -201,6 +222,20 @@ def get_searches() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _deserialize_entreprise(row):
+    """sqlite Row -> dict, avec emails_strategiques redéserialisé en liste."""
+    d = dict(row)
+    raw = d.get("emails_strategiques") or ""
+    if raw:
+        try:
+            d["emails_strategiques"] = json.loads(raw)
+        except (TypeError, ValueError):
+            d["emails_strategiques"] = []
+    else:
+        d["emails_strategiques"] = []
+    return d
+
+
 def get_search_results(search_id: int) -> list[dict]:
     """Retourne les entreprises d'une recherche donnée."""
     conn = get_connection()
@@ -215,23 +250,36 @@ def get_search_results(search_id: int) -> list[dict]:
         (search_id,),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_deserialize_entreprise(r) for r in rows]
 
 
 def update_entreprises(entreprises):
     """Met à jour les emails, scores, validation SMTP et contenu site d'entreprises existantes."""
     conn = get_connection()
     for e in entreprises:
+        strat = e.get("emails_strategiques") or []
+        if isinstance(strat, str):
+            strat_json = strat
+        else:
+            try:
+                strat_json = json.dumps(
+                    [list(t) if isinstance(t, tuple) else t for t in strat],
+                    ensure_ascii=False,
+                )
+            except (TypeError, ValueError):
+                strat_json = ""
         conn.execute(
             """
             UPDATE entreprises SET emails = ?, score = ?,
                 email_status = ?, email_confidence = ?,
+                emails_confiance = ?, emails_strategiques = ?,
                 contenu_site = CASE WHEN ? != '' THEN ? ELSE contenu_site END,
                 date_mise_a_jour = datetime('now', 'localtime')
             WHERE nom = ? AND adresse = ?
             """,
             (e.get("emails", ""), e.get("score", 0),
              e.get("email_status", ""), e.get("email_confidence", ""),
+             e.get("emails_confiance", ""), strat_json,
              e.get("contenu_site", ""), e.get("contenu_site", ""),
              e.get("nom", ""), e.get("adresse", "")),
         )
@@ -240,7 +288,8 @@ def update_entreprises(entreprises):
 
 
 def delete_search(search_id: int):
-    """Supprime une recherche et ses liens (les entreprises orphelines restent)."""
+    """Supprime une recherche, ses liens, ET les entreprises devenues orphelines
+    (plus liées à aucune recherche)."""
     conn = get_connection()
     conn.execute("DELETE FROM recherche_entreprises WHERE recherche_id = ?", (search_id,))
     conn.execute("DELETE FROM searches WHERE id = ?", (search_id,))

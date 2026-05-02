@@ -1,4 +1,4 @@
-"""Scoring de maturité digitale des prospects."""
+"""Scoring des prospects calibré sur la qualité du meilleur email disponible."""
 
 import re
 
@@ -80,103 +80,145 @@ def _is_franchise(nom: str) -> bool:
     return False
 
 
-def calculate_score(entreprise: dict) -> int:
-    """
-    Calcule un score de qualification pour un prospect.
-    Priorité : accessibilité du décisionnaire > maturité digitale > taille.
-    """
-    score = 0
-    nom = entreprise.get("nom", "")
-    site = entreprise.get("site_web", "")
-    emails = entreprise.get("emails", "")
-    telephone = entreprise.get("telephone", "")
-    note = _safe_float(entreprise.get("note", ""))
-    nb_avis = entreprise.get("nb_avis", 0) or 0
+# Source de l'email triée du plus direct au plus générique
+_DIRIGEANT_SOURCES = {"dirigeant"}
+_DIRECTION_SOURCES = {"direction", "rh", "metier"}
+_GENERIQUE_SOURCES = {"site", "contact"}
+# "perso" (gmail/outlook/…) traité à part : MX non testable -> Froid systématique
 
-    # --- Franchise / groupe → éliminé ---
-    if _is_franchise(nom):
+# Liste unique des domaines perso : importée depuis email_finder pour éviter
+# la duplication. On garde un alias `_PUBLIC_DOMAINS` pour le code historique.
+from email_finder import PUBLIC_EMAIL_DOMAINS as _PUBLIC_DOMAINS
+
+# Mapping legacy DB (high/medium/low) -> labels FR
+_CONF_LEGACY = {"high": "vérifié", "medium": "probable", "low": "incertain"}
+# Mapping email_status SMTP -> confiance
+_STATUS_TO_CONF = {
+    "valid": "vérifié",
+    "catchall": "probable",
+    "public": "probable",
+    "unknown": "incertain",
+}
+
+
+def _best_email_signals(e):
+    """Renvoie (source, confiance) du meilleur email disponible, ou None.
+
+    Mêmes règles que app.pick_best_email mais sans dépendance Streamlit :
+    on classe par confiance d'abord, puis par directness de la source.
+    """
+    candidates = []
+
+    if (e.get("email_dirigeant") or "").strip():
+        c = (e.get("email_dirigeant_confiance")
+             or e.get("email_dirigeant_confidence") or "")
+        c = _CONF_LEGACY.get(c, c) or ""
+        candidates.append(("dirigeant", c))
+
+    email_s = (e.get("emails") or "").strip()
+    if email_s:
+        domain = email_s.split("@", 1)[1].lower() if "@" in email_s else ""
+        is_public = (e.get("email_status") == "public") or (domain in _PUBLIC_DOMAINS)
+        if is_public:
+            candidates.append(("perso", "incertain"))
+        else:
+            c = e.get("emails_confiance") or ""
+            if not c:
+                c = _STATUS_TO_CONF.get(e.get("email_status") or "", "")
+            candidates.append(("site", c))
+
+    # emails_strategiques peut arriver comme list (in-memory) ou string JSON
+    # (lecture brute DB par un script). On accepte les deux.
+    strat = e.get("emails_strategiques") or []
+    if isinstance(strat, str):
+        try:
+            import json as _json
+            strat = _json.loads(strat) if strat else []
+        except (ValueError, TypeError):
+            strat = []
+    for tup in strat:
+        if isinstance(tup, (list, tuple)) and len(tup) >= 2 and tup[0]:
+            typ = tup[1] or "contact"
+            conf = tup[2] if len(tup) >= 3 else ""
+            candidates.append((typ, conf or "probable"))
+
+    if not candidates:
+        return None
+
+    conf_rank = {"vérifié": 0, "probable": 1, "incertain": 2, "": 3}
+    src_rank = {"dirigeant": 0, "direction": 1, "rh": 1, "metier": 1,
+                "site": 2, "contact": 2, "perso": 3}
+    candidates.sort(key=lambda c: (conf_rank.get(c[1], 4),
+                                   src_rank.get(c[0], 9)))
+    return candidates[0]
+
+
+def calculate_score(entreprise):
+    """Score 0-100 calibré uniquement sur la qualité du meilleur email.
+
+    Grille (cf. CLAUDE.md) :
+      90  A Hot   - nominatif dirigeant + vérifié SMTP
+      70  B Chaud - (dirigeant + probable) OU (direction/RH + vérifié)
+      40  C Tiède - dirigeant incertain/non testé, ou direction probable,
+                     ou générique vérifié
+      10  D Froid - générique probable/incertain, ou aucun email
+       0  Exclu  - franchise / groupe / chaîne
+    """
+    if _is_franchise(entreprise.get("nom", "")):
         return 0
 
-    # Grosse structure probable
-    if nb_avis >= 500:
-        return 5
-    if nb_avis >= 200:
-        score -= 20
-    elif nb_avis >= 100:
-        score -= 10
+    sig = _best_email_signals(entreprise)
+    if sig is None:
+        return 10
 
-    # ============================================
-    # ACCESSIBILITÉ DU DÉCISIONNAIRE (max ~50 pts)
-    # ============================================
+    source, conf = sig
+    is_dir = source in _DIRIGEANT_SOURCES
+    is_mid = source in _DIRECTION_SOURCES
+    is_gen = source in _GENERIQUE_SOURCES
 
-    # Téléphone portable = ligne directe du patron
-    if telephone and re.search(r"^0[67]", telephone):
-        score += 25
-
-    # Email = donnée exploitable pour automatisation
-    if emails:
-        prefix = emails.lower().split("@")[0] if "@" in emails else ""
-        if prefix and prefix not in ("contact", "info", "accueil", "bonjour", "hello", "commercial", "devis"):
-            score += 20  # Email nominatif = décideur accessible + donnée riche
-        else:
-            score += 15  # Email générique = point de contact automatisable
-
-    # ============================================
-    # MATURITÉ DIGITALE (max ~25 pts)
-    # ============================================
-
-    # Pas de site web = besoin digital fort
-    if not site:
-        score += 15
-    else:
-        if not emails:
-            score += 10  # Site web sans email = présence faible
-
-    # Note faible + assez d'avis = besoin d'automatisation relation client
-    if note and note < 3.5 and nb_avis >= 20:
-        score += 10
-
-    # ============================================
-    # TAILLE / PETITE STRUCTURE (max ~20 pts)
-    # ============================================
-
-    if nb_avis <= 5:
-        score += 20  # Artisan / indépendant
-    elif nb_avis <= 15:
-        score += 15  # TPE
-    elif nb_avis <= 50:
-        score += 10  # Petite PME
-
-    return max(0, min(score, 100))
+    if is_dir and conf == "vérifié":
+        return 90
+    if (is_dir and conf == "probable") or (is_mid and conf == "vérifié"):
+        return 70
+    if is_dir:  # incertain ou non testé ("")
+        return 40
+    if is_mid and conf in ("probable", "incertain"):
+        return 40
+    if is_gen and conf == "vérifié":
+        return 40
+    return 10
 
 
-def calculate_scores(entreprises: list[dict]) -> list[dict]:
+def calculate_scores(entreprises):
     """Ajoute un score à chaque entreprise."""
     for e in entreprises:
         e["score"] = calculate_score(e)
     return entreprises
 
 
-def score_label(score: int) -> str:
-    """Retourne le label textuel du score."""
-    if score >= 50:
+def score_label(score):
+    """Label texte du score (cohérent avec la grille A/B/C/D)."""
+    if score >= 90:
         return "Hot"
-    elif score >= 25:
-        return "Warm"
-    return "Cold"
+    if score >= 70:
+        return "Chaud"
+    if score >= 40:
+        return "Tiède"
+    if score > 0:
+        return "Froid"
+    return "Exclu"
 
 
-def score_color(score: int) -> str:
-    """Retourne la couleur CSS du score."""
-    if score >= 50:
-        return "#22c55e"
-    elif score >= 25:
-        return "#f59e0b"
-    return "#94a3b8"
+def score_color(score):
+    """Couleur CSS du badge de score."""
+    if score >= 90:
+        return "#16a34a"   # vert
+    if score >= 70:
+        return "#84cc16"   # vert clair
+    if score >= 40:
+        return "#f59e0b"   # orange
+    if score > 0:
+        return "#94a3b8"   # gris (Froid)
+    return "#64748b"       # gris foncé (Exclu)
 
 
-def _safe_float(val) -> float:
-    try:
-        return float(str(val).replace(",", "."))
-    except (ValueError, TypeError):
-        return 0.0

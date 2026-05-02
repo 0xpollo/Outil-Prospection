@@ -13,7 +13,7 @@ from urllib.parse import quote_plus
 from scraper import scrape_google_maps
 from email_enricher import enrich_emails
 from entreprise_enricher import enrich_entreprises
-from email_finder import enrich_nominative_emails, validate_scraped_emails
+from email_finder import enrich_nominative_emails, validate_scraped_emails, PUBLIC_EMAIL_DOMAINS
 from scoring import calculate_scores, score_color, score_label
 from database import (
     save_search, get_searches, get_search_results, delete_search,
@@ -271,14 +271,15 @@ st.markdown("""
         background: #f0f9ff;
     }
     /* Largeurs des colonnes */
-    table th:nth-child(1), table td:nth-child(1) { width: 16%; }  /* Nom */
-    table th:nth-child(2), table td:nth-child(2) { width: 18%; }  /* Adresse */
-    table th:nth-child(3), table td:nth-child(3) { width: 11%; }  /* Téléphone */
-    table th:nth-child(4), table td:nth-child(4) { width: 16%; }  /* Email */
-    table th:nth-child(5), table td:nth-child(5) { width: 14%; }  /* Site Web */
-    table th:nth-child(6), table td:nth-child(6) { width: 5%; text-align: center; }   /* Note */
-    table th:nth-child(7), table td:nth-child(7) { width: 6%; text-align: center; }   /* Nb avis */
-    table th:nth-child(8), table td:nth-child(8) { width: 14%; text-align: center; }  /* Score */
+    table th:nth-child(1), table td:nth-child(1) { width: 13%; }  /* Nom */
+    table th:nth-child(2), table td:nth-child(2) { width: 11%; }  /* Dirigeant */
+    table th:nth-child(3), table td:nth-child(3) { width: 18%; }  /* Email */
+    table th:nth-child(4), table td:nth-child(4) { width: 8%; text-align: center; }  /* Source */
+    table th:nth-child(5), table td:nth-child(5) { width: 8%; text-align: center; }  /* Qualité */
+    table th:nth-child(6), table td:nth-child(6) { width: 14%; }  /* Adresse */
+    table th:nth-child(7), table td:nth-child(7) { width: 9%; }   /* Téléphone */
+    table th:nth-child(8), table td:nth-child(8) { width: 9%; }   /* Site Web */
+    table th:nth-child(9), table td:nth-child(9) { width: 10%; text-align: center; } /* Score */
     table td a {
         display: inline-block;
         max-width: 100%;
@@ -407,6 +408,7 @@ _SOURCE_TIER = {
     "rh": 3,
     "site": 4,
     "contact": 5,
+    "perso": 6,  # gmail/outlook/… non testable, en dernier
 }
 
 _CONFIDENCE_RANK = {"vérifié": 0, "valid": 0, "probable": 1, "catchall": 1, "incertain": 2}
@@ -428,14 +430,30 @@ def pick_best_email(entreprise):
 
     email_s = (entreprise.get("emails") or "").strip()
     if email_s:
-        conf_s = entreprise.get("emails_confiance") or ""
-        if not conf_s:
-            status = entreprise.get("email_status") or ""
-            conf_s = {"valid": "vérifié", "catchall": "probable",
-                      "public": "probable", "unknown": "incertain"}.get(status, "")
-        candidates.append((email_s, conf_s or "incertain", "site"))
+        status = entreprise.get("email_status") or ""
+        domain_s = email_s.split("@", 1)[1].lower() if "@" in email_s else ""
+        is_public = (status == "public") or (domain_s in PUBLIC_EMAIL_DOMAINS)
+        if is_public:
+            # Email perso (gmail/outlook/…) : MX non testable → toujours incertain.
+            # Source distincte "perso" pour ne pas le confondre avec un site validé.
+            candidates.append((email_s, "incertain", "perso"))
+        else:
+            conf_s = entreprise.get("emails_confiance") or ""
+            if not conf_s:
+                conf_s = {"valid": "vérifié", "catchall": "probable",
+                          "unknown": "incertain"}.get(status, "")
+            candidates.append((email_s, conf_s or "incertain", "site"))
 
-    for tup in (entreprise.get("emails_strategiques") or []):
+    # emails_strategiques peut arriver comme list (in-memory) ou string JSON
+    # (lecture brute DB), on accepte les deux.
+    strat = entreprise.get("emails_strategiques") or []
+    if isinstance(strat, str):
+        try:
+            import json as _json
+            strat = _json.loads(strat) if strat else []
+        except (ValueError, TypeError):
+            strat = []
+    for tup in strat:
         if isinstance(tup, (list, tuple)) and len(tup) >= 3:
             e, typ, conf = tup[0], tup[1], tup[2]
         elif isinstance(tup, (list, tuple)) and len(tup) == 2:
@@ -459,21 +477,10 @@ def _format_best_email(email, confidence, source):
     """Email + badge confiance + petit suffixe source pour le tableau."""
     if not email:
         return ""
-    colors = {"vérifié": "#10b981", "probable": "#f59e0b", "incertain": "#94a3b8"}
-    color = colors.get(confidence, "#94a3b8")
-    label = confidence or "?"
-    src_labels = {
-        "dirigeant": "dirigeant", "direction": "direction", "metier": "métier",
-        "site": "site", "rh": "RH", "contact": "contact",
-    }
-    mailto = '<a href="mailto:' + email + '" style="color:#0EA5E9;text-decoration:none;">' + email + "</a>"
-    badge = ('<span style="background:' + color + ';color:#fff;padding:1px 6px;'
-             'border-radius:8px;font-size:0.7rem;margin-left:6px;">' + label + "</span>")
-    src_html = ""
-    if source in src_labels:
-        src_html = ('<span style="color:#94a3b8;font-size:0.7rem;margin-left:4px;">('
-                    + src_labels[source] + ")</span>")
-    return mailto + badge + src_html
+    # Badge confiance + suffixe source retirés : info dupliquée avec les
+    # colonnes "Qualité" et "Source" du tableau.
+    return ('<a href="mailto:' + email + '" style="color:#0EA5E9;'
+            'text-decoration:none;">' + email + "</a>")
 
 
 def _format_email_dirigeant(email, confidence):
@@ -521,19 +528,38 @@ def _build_export_df(results):
     """DataFrame pour l'export Excel au format sortie.xlsx.
 
     Colonnes (exactement comme sortie.xlsx) :
-    Nom | Adresse | Téléphone | Email | Source | (vide) | Site Web |
-    Statut | Date d'envoi | Nom nettoyé | Ville
-    (la colonne Date ISO est ajoutée comme formule par _export_excel)
+    Nom | Adresse | Téléphone | Email | Source Email | Qualité Email |
+    Site Web | Dirigeant | Statut | Date d'envoi | Nom nettoyé | Ville | Note
+    (la colonne Date ISO est ajoutée comme formule par _export_excel en col N)
     """
+    from scoring import calculate_score, score_label
+    _TIER_LETTER = {"Hot":"A","Chaud":"B","Tiède":"C","Froid":"D","Exclu":"X"}
+
     df = pd.DataFrame(results)
     best = [pick_best_email(ent) for ent in results]
     df["Email"] = [b[0] for b in best]
     src_labels = {
         "dirigeant": "Dirigeant", "direction": "Direction",
         "metier": "Métier", "rh": "RH", "site": "Site web",
-        "contact": "Contact",
+        "contact": "Contact", "perso": "Perso",
     }
-    df["Source"] = [src_labels.get(b[2], "") for b in best]
+    df["Source Email"] = [src_labels.get(b[2], "") for b in best]
+    df["Qualité Email"] = [b[1] for b in best]
+
+    prenoms = df.get("dirigeant_prenom", pd.Series([""] * len(df))).fillna("")
+    noms = df.get("dirigeant_nom", pd.Series([""] * len(df))).fillna("")
+    df["Dirigeant"] = [
+        ("{} {}".format(p, n)).strip().title() if (p or n) else ""
+        for p, n in zip(prenoms, noms)
+    ]
+
+    notes = []
+    for ent in results:
+        s = calculate_score(ent)
+        lbl = score_label(s)
+        tier = _TIER_LETTER.get(lbl, "?")
+        notes.append("Exclu" if tier == "X" else "{} — {} ({})".format(tier, lbl, s))
+    df["Note"] = notes
 
     rename = {
         "nom": "Nom",
@@ -547,13 +573,11 @@ def _build_export_df(results):
     df["Date d'envoi"] = ""
     df["Nom nettoyé"] = ""
     df["Ville"] = ""
-    df["__sep"] = ""  # colonne séparatrice vide entre Source et Site Web
 
-    cols = ["Nom", "Adresse", "Téléphone", "Email", "Source", "__sep",
-            "Site Web", "Statut", "Date d'envoi", "Nom nettoyé", "Ville"]
+    cols = ["Nom", "Adresse", "Téléphone", "Email", "Source Email", "Qualité Email",
+            "Site Web", "Dirigeant", "Statut", "Date d'envoi", "Nom nettoyé", "Ville", "Note"]
     cols = [c for c in cols if c in df.columns]
     df = df[cols]
-    df.columns = [c if c != "__sep" else "" for c in df.columns]
     return df
 
 
@@ -570,17 +594,34 @@ def _export_excel(df_export):
         df_suivi.to_excel(writer, index=False, sheet_name="Envoi")
         df_suivi.to_excel(writer, index=False, sheet_name="Relance1")
         df_suivi.to_excel(writer, index=False, sheet_name="Relance2")
-        # Injecter formule Date ISO (col L = 12)
+        # Injecter formule Date ISO (col N = 14, ref col J = "Date d'envoi")
         ws = writer.sheets["Sheet1"]
         for row_num in range(2, ws.max_row + 1):
-            ws.cell(row=row_num, column=12).value = (
-                '=IF(I' + str(row_num) + '="","",'
-                'TEXT(DATE(VALUE(MID(I' + str(row_num) + ',7,4)),'
-                'VALUE(MID(I' + str(row_num) + ',4,2)),'
-                'VALUE(LEFT(I' + str(row_num) + ',2))),"YYYY-MM-DD")'
-                '&" "&MID(I' + str(row_num) + ',14,5))'
+            ws.cell(row=row_num, column=14).value = (
+                '=IF(J' + str(row_num) + '="","",'
+                'TEXT(DATE(VALUE(MID(J' + str(row_num) + ',7,4)),'
+                'VALUE(MID(J' + str(row_num) + ',4,2)),'
+                'VALUE(LEFT(J' + str(row_num) + ',2))),"YYYY-MM-DD")'
+                '&" "&MID(J' + str(row_num) + ',14,5))'
             )
     return buffer.getvalue()
+
+
+_SOURCE_DISPLAY = {
+    "dirigeant": "Dirigeant", "direction": "Direction", "rh": "RH",
+    "metier": "Métier", "site": "Site web", "contact": "Contact",
+    "perso": "Perso",
+}
+_QUALITE_COLOR = {"vérifié": "#10b981", "probable": "#f59e0b",
+                  "incertain": "#94a3b8"}
+
+
+def _qualite_badge(qual):
+    if not qual:
+        return ""
+    color = _QUALITE_COLOR.get(qual, "#94a3b8")
+    return ('<span style="background:' + color + ';color:#fff;padding:2px 8px;'
+            'border-radius:8px;font-size:0.72rem;">' + qual + "</span>")
 
 
 def render_results_table(results, show_deja_connue=False):
@@ -596,22 +637,23 @@ def render_results_table(results, show_deja_connue=False):
             for p, n in zip(prenoms, noms)
         ]
 
-    # Une seule colonne "Email" : meilleur email de prospection pondéré
-    # par (confiance, source). Voir pick_best_email plus haut.
-    df["Email"] = [_format_best_email(*pick_best_email(ent)) for ent in results]
+    # Email (avec badge confiance) + Source + Qualité depuis pick_best_email
+    best = [pick_best_email(ent) for ent in results]
+    df["Email"] = [_format_best_email(*b) for b in best]
+    df["Source"] = [_SOURCE_DISPLAY.get(b[2], "") if b[0] else "" for b in best]
+    df["Qualité"] = [_qualite_badge(b[1]) if b[0] else "" for b in best]
 
     column_map = {
         "nom": "Nom",
         "adresse": "Adresse",
         "telephone": "T\u00e9l\u00e9phone",
         "site_web": "Site Web",
-        "note": "Note",
-        "nb_avis": "Nb avis",
         "score": "Score",
     }
     df = df.rename(columns=column_map)
 
-    display_cols = ["Nom", "Dirigeant", "Email", "Adresse", "T\u00e9l\u00e9phone", "Site Web", "Note", "Nb avis", "Score"]
+    display_cols = ["Nom", "Dirigeant", "Email", "Source", "Qualit\u00e9",
+                    "Adresse", "T\u00e9l\u00e9phone", "Site Web", "Score"]
     display_cols = [c for c in display_cols if c in df.columns]
     df = df[display_cols]
 
@@ -634,8 +676,8 @@ def render_results_table(results, show_deja_connue=False):
 
     html_table = df_display.to_html(escape=False, index=False)
 
-    # Rendre les colonnes Note, Nb avis, Score triables
-    sortable_cols = {"Note": "num", "Nb avis": "num", "Score": "num"}
+    # Score triable (le seul qui a un sens numérique pour le tri client)
+    sortable_cols = {"Score": "num"}
     for col_name, sort_type in sortable_cols.items():
         html_table = html_table.replace(
             f"<th>{col_name}</th>",
@@ -1028,17 +1070,25 @@ with tab_recherche:
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-        df = render_results_table(results, show_deja_connue=True)
+        # Bouton de téléchargement EN HAUT pour éviter de scroller 1000 lignes
+        col_count, col_dl = st.columns([3, 2])
+        with col_count:
+            st.markdown(
+                "**%d résultats**" % len(results)
+                + " — triés par score décroissant (A → D)"
+            )
+        with col_dl:
+            df_export = _build_export_df(results)
+            st.download_button(
+                label="Télécharger Excel",
+                data=_export_excel(df_export),
+                file_name="prospection.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="excel_recherche",
+            )
 
-        # Export
-        df_export = _build_export_df(results)
-        st.download_button(
-            label="Télécharger Excel",
-            data=_export_excel(df_export),
-            file_name="prospection.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+        df = render_results_table(results, show_deja_connue=True)
 
 
 # ===================== ONGLET JOBS =====================
@@ -1119,10 +1169,12 @@ with tab_jobs:
                                     bits.append("SMTP valid {}".format(_stats["valid_emails"]))
                                 if "dirigeants_trouves" in _stats:
                                     bits.append("dirigeants {}".format(_stats["dirigeants_trouves"]))
-                                if "email_dirigeant_advanced" in _stats:
-                                    bits.append("emails dir advanced {}".format(_stats["email_dirigeant_advanced"]))
-                                if "with_strategic" in _stats:
-                                    bits.append("stratégiques {}".format(_stats["with_strategic"]))
+                                if "email_dir_phase1" in _stats:
+                                    bits.append("dir patterns {}".format(_stats["email_dir_phase1"]))
+                                if "email_dir_phase2" in _stats:
+                                    bits.append("dir Perplexity {}".format(_stats["email_dir_phase2"]))
+                                if "with_strategic_phase2" in _stats:
+                                    bits.append("stratégiques {}".format(_stats["with_strategic_phase2"]))
                                 if "with_any_email" in _stats:
                                     bits.append("**total avec email {}**".format(_stats["with_any_email"]))
                                 if bits:
@@ -1162,17 +1214,23 @@ with tab_historique:
     if not searches:
         st.info("Aucune recherche enregistr\u00e9e. Lancez une recherche pour commencer.")
     else:
-        for s in searches:
+        # D\u00e9dup d\u00e9fensif : si pour une raison X la liste contient des doublons,
+        # on \u00e9vite la collision de key dans Streamlit.
+        seen_ids = set()
+        for idx, s in enumerate(searches):
+            if s["id"] in seen_ids:
+                continue
+            seen_ids.add(s["id"])
             date_str = s["date_recherche"][:16]
             label = f"{s['activite']} \u00e0 {s['zone']} \u2014 {s['nb_resultats']} r\u00e9sultats \u2014 {date_str}"
 
             with st.expander(label):
                 col_info, col_email, col_del = st.columns([6, 2, 2])
                 with col_email:
-                    if st.button("Rechercher les emails", key=f"email_{s['id']}"):
+                    if st.button("Rechercher les emails", key=f"email_{idx}_{s['id']}"):
                         st.session_state[f"run_email_{s['id']}"] = True
                 with col_del:
-                    if st.button("Supprimer", key=f"del_{s['id']}"):
+                    if st.button("Supprimer", key=f"del_{idx}_{s['id']}"):
                         delete_search(s["id"])
                         st.rerun()
 
@@ -1199,18 +1257,21 @@ with tab_historique:
 
                 hist_results = get_search_results(s["id"])
                 if hist_results:
+                    # Bouton d'export EN HAUT
+                    col_count, col_dl = st.columns([3, 2])
+                    with col_count:
+                        st.markdown("**%d résultats**" % len(hist_results))
+                    with col_dl:
+                        df_export = _build_export_df(hist_results)
+                        st.download_button(
+                            label="Télécharger Excel",
+                            data=_export_excel(df_export),
+                            file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key="excel_%d_%s" % (idx, s["id"]),
+                        )
                     hist_df = render_results_table(hist_results)
-
-                    # Boutons d'export
-                    df_export = _build_export_df(hist_results)
-                    st.download_button(
-                        label="Télécharger Excel",
-                        data=_export_excel(df_export),
-                        file_name="prospection_%s_%s.xlsx" % (s['activite'], s['zone']),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="excel_%s" % s['id'],
-                    )
                 else:
                     st.write("Aucun r\u00e9sultat pour cette recherche.")
 

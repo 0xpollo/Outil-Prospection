@@ -269,9 +269,11 @@ def _extract_fields(result, confidence):
     nom = ""
     qualite = ""
     if dirigeant:
-        # 'prenoms' peut contenir plusieurs prénoms — on garde le premier
+        # 'prenoms' peut contenir plusieurs prénoms — on garde le premier.
+        # split() sur whitespace pur retourne [], d'où le check sur len.
         prenoms_raw = dirigeant.get("prenoms") or ""
-        prenom = prenoms_raw.split()[0] if prenoms_raw else ""
+        prenoms_parts = prenoms_raw.split()
+        prenom = prenoms_parts[0] if prenoms_parts else ""
         nom = dirigeant.get("nom") or ""
         qualite = dirigeant.get("qualite") or ""
 

@@ -21,6 +21,9 @@ GC_BATCH_SIZE = 200
 
 # Regex pour extraire les emails
 EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+# Échappements JSON Unicode courants qui leak dans le HTML scrappé
+# (sinon ">info@company.com" matche EMAIL_REGEX → faux positif).
+_JSON_ESCAPE_RE = re.compile(r'\\u00([0-9a-fA-F]{2})')
 
 # Emails à ignorer (faux positifs courants)
 IGNORED_PATTERNS = {
@@ -28,6 +31,20 @@ IGNORED_PATTERNS = {
     "sentry.io", "wixpress.com", "googleapis.com",
     "w3.org", "schema.org", "wordpress.org",
     "gravatar.com", "wp.com",
+}
+
+# Domaines clairement placeholder ou plateforme (l'email scrapé n'est PAS celui
+# du commerce mais du fournisseur de site / d'un template)
+PLACEHOLDER_DOMAINS = {
+    # Placeholders manifestes
+    "domain.com", "exemple.com", "exemple.fr", "example.fr",
+    "mydomain.com", "votredomaine.com", "votredomaine.fr",
+    "test.fr", "domaine.com", "domaine.fr",
+    "local.fr", "etre-visible.local.fr",
+    # Plateformes / créateurs de site (l'email = celui de la plateforme,
+    # pas du resto / commerce)
+    "webador.fr", "mapszi.com", "centralapp.com",
+    "jesorsenville.com", "lateliercom.fr",
 }
 
 IGNORED_PREFIXES = {
@@ -96,6 +113,8 @@ def is_valid_email(email: str) -> bool:
 
     # Vérifier le domaine
     domain = email.split("@")[1] if "@" in email else ""
+    if domain in PLACEHOLDER_DOMAINS:
+        return False
     if any(ignored in domain for ignored in IGNORED_PATTERNS):
         return False
 
@@ -111,6 +130,12 @@ def is_valid_email(email: str) -> bool:
     return True
 
 
+def _decode_json_escapes(text):
+    """Convertit les `\\u003e` / `\\u0040` etc. en caractères réels avant
+    extraction d'email. Évite les faux positifs comme `u003einfo@x.com`."""
+    return _JSON_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), text)
+
+
 def extract_emails_from_url(url, session=None):
     """Extrait les emails d'une URL donnée."""
     try:
@@ -122,7 +147,7 @@ def extract_emails_from_url(url, session=None):
         # Lire seulement les premiers MAX_RESPONSE_SIZE octets
         content = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
         resp.close()
-        text = content.decode("utf-8", errors="ignore")
+        text = _decode_json_escapes(content.decode("utf-8", errors="ignore"))
 
         # Extraire les emails du HTML brut
         emails = set(EMAIL_REGEX.findall(text))
@@ -158,7 +183,7 @@ def fetch_home_content(url, session=None):
 
         content = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
         resp.close()
-        text = content.decode("utf-8", errors="ignore")
+        text = _decode_json_escapes(content.decode("utf-8", errors="ignore"))
 
         emails = set(EMAIL_REGEX.findall(text))
         soup = BeautifulSoup(text, "html.parser")

@@ -86,7 +86,6 @@ def _parse_business(biz):
         "nom": nom,
         "adresse": "",
         "telephone": "",
-        "telephone_raw": "",
         "site_web": "",
         "note": "",
         "nb_avis": 0,
@@ -124,7 +123,6 @@ def _parse_business(biz):
                 raw_phone = pd[0][0]
             elif isinstance(pd[0], str):
                 raw_phone = pd[0]
-    info["telephone_raw"] = raw_phone
     info["telephone"] = normalize_phone(raw_phone)
 
     return info
@@ -744,7 +742,6 @@ def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
                     "nom": name,
                     "adresse": "",
                     "telephone": "",
-                    "telephone_raw": "",
                     "site_web": "",
                     "note": "",
                     "nb_avis": 0,
@@ -799,7 +796,6 @@ def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
                     except Exception:
                         pass
 
-                info["telephone_raw"] = info["telephone"]
                 info["telephone"] = normalize_phone(info["telephone"])
 
                 # Extraire la note depuis la fiche si manquante
@@ -823,7 +819,7 @@ def _scrape_via_selenium(query, geo_lat, geo_lng, max_results,
             except Exception:
                 results.append({
                     "nom": name, "adresse": "", "telephone": "",
-                    "telephone_raw": "", "site_web": "", "note": "", "nb_avis": 0,
+                    "site_web": "", "note": "", "nb_avis": 0,
                 })
 
     finally:
@@ -888,8 +884,11 @@ def scrape_google_maps(
             progress_callback=progress_callback,
         )
 
-    # --- Méthode 2 : Selenium (fallback uniquement, sauf mode France) ---
-    if not results and mode != "france":
+    # --- Méthode 2 : Selenium (fallback uniquement) ---
+    # On skip aussi pour les modes ultra/france : sur 1000+ résultats à
+    # scroller, Selenium prend 5-8 min et n'apporte rien que le HTTP n'ait
+    # déjà tenté. Fallback réservé aux modes simple/approfondie.
+    if not results and mode in ("simple", "approfondie"):
         results = _scrape_via_selenium(
             query, geo_lat, geo_lng, max_results,
             progress_callback, error_callback,

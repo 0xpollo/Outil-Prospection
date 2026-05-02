@@ -16,6 +16,7 @@ Réponses du service :
 """
 
 import logging
+import time
 import requests
 
 from config import VERIFIER_URL, VERIFIER_KEY
@@ -25,7 +26,12 @@ logger = logging.getLogger(__name__)
 # Cache par run pour éviter de retester un même domaine ou email
 _DOMAIN_STATUS_CACHE = {}  # domain → "no_mx" / "catchall" / "ok" / "unknown"
 _EMAIL_RESULT_CACHE = {}   # email → status
-_AVAILABLE_CACHE = None    # None / True / False (résultat du 1er health-check)
+# _AVAILABLE_CACHE peut être :
+#   - None       : jamais testé
+#   - True       : service joignable (cache permanent dans le run)
+#   - float      : timestamp jusqu'auquel on considère le service down (TTL)
+_AVAILABLE_CACHE = None
+_AVAILABLE_FALSE_TTL = 60   # secondes — re-test après ce délai
 
 # Timeout des appels au service VPS.
 # Le user-spec était 8s, mais en pratique /catchall prend ~8s côté serveur
@@ -36,20 +42,24 @@ _HEALTH_TIMEOUT = 5
 
 
 def is_available():
-    """Service VPS configuré et joignable ? Caché par run (1 seul health-check).
+    """Service VPS configuré et joignable ?
 
-    Important : un blip réseau passager peut faire échouer le /health alors
-    que le service répond aux /verify normalement. Le cache évite ce flake.
-    Si on veut re-tester (entre runs), appeler reset_cache().
+    Cache :
+      - True : permanent dans le run (si le service répond, il reste up).
+      - False : caché 60s (`_AVAILABLE_FALSE_TTL`) — évite de payer 15s de
+        retries 6× par entreprise quand le service est vraiment HS, tout en
+        permettant de re-tester si c'était un blip transitoire.
     """
     global _AVAILABLE_CACHE
-    if _AVAILABLE_CACHE is not None:
-        return _AVAILABLE_CACHE
-    if not VERIFIER_URL or not VERIFIER_KEY:
-        _AVAILABLE_CACHE = False
+    if _AVAILABLE_CACHE is True:
+        return True
+    if isinstance(_AVAILABLE_CACHE, float) and time.time() < _AVAILABLE_CACHE:
         return False
-    # 2 essais avec petit délai — robuste à un blip réseau ponctuel
-    for attempt in range(2):
+    if not VERIFIER_URL or not VERIFIER_KEY:
+        _AVAILABLE_CACHE = time.time() + _AVAILABLE_FALSE_TTL
+        return False
+    # 3 essais avec backoff (0s, 0.5s, 1s) — robuste aux blips
+    for attempt in range(3):
         try:
             resp = requests.get(VERIFIER_URL + "/health", timeout=_HEALTH_TIMEOUT)
             if resp.status_code == 200:
@@ -57,10 +67,10 @@ def is_available():
                 return True
         except Exception:
             pass
-        if attempt == 0:
-            import time as _t
-            _t.sleep(0.5)
-    _AVAILABLE_CACHE = False
+        if attempt < 2:
+            time.sleep(0.5 * (attempt + 1))
+    # Cacher False pour 60s avant de retester
+    _AVAILABLE_CACHE = time.time() + _AVAILABLE_FALSE_TTL
     return False
 
 
@@ -165,8 +175,9 @@ def verify_email(email):
 
 
 def reset_cache():
-    """À appeler entre les runs (vide les caches en mémoire)."""
-    global _AVAILABLE_CACHE
+    """À appeler entre les runs (vide les caches d'emails et de domaines).
+    `_AVAILABLE_CACHE` n'est PAS reset : si le service était dispo au start,
+    il l'est encore ; sinon `is_available()` retestera à chaque appel.
+    """
     _DOMAIN_STATUS_CACHE.clear()
     _EMAIL_RESULT_CACHE.clear()
-    _AVAILABLE_CACHE = None

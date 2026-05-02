@@ -179,16 +179,16 @@ def validate_site_matches_company(site_web, nom_entreprise, timeout=5):
     # 2) Fallback : scrape les premiers 8 ko et cherche un token dans le texte
     try:
         url = site_web if "://" in site_web else "http://" + site_web
-        resp = requests.get(url, timeout=timeout, headers=HEADERS, stream=True)
-        if resp.status_code != 200:
-            return False
-        head_html = ""
-        for chunk in resp.iter_content(chunk_size=4096, decode_unicode=True):
-            if isinstance(chunk, bytes):
-                chunk = chunk.decode("utf-8", errors="ignore")
-            head_html += chunk
-            if "</head>" in head_html.lower() or len(head_html) > 8192:
-                break
+        with requests.get(url, timeout=timeout, headers=HEADERS, stream=True) as resp:
+            if resp.status_code != 200:
+                return False
+            head_html = ""
+            for chunk in resp.iter_content(chunk_size=4096, decode_unicode=True):
+                if isinstance(chunk, bytes):
+                    chunk = chunk.decode("utf-8", errors="ignore")
+                head_html += chunk
+                if "</head>" in head_html.lower() or len(head_html) > 8192:
+                    break
         page_text = re.sub(r"<[^>]+>", " ", head_html).lower()
         page_text = _strip_accents(page_text)
         for token in tokens:
